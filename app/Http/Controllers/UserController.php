@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
-    public function getProfile($id)
+    public function getUserProfile($id)
     {
         $sub = $id;
         if (!$sub) {

@@ -22,7 +22,7 @@ use App\Http\Controllers\AdminController;
 */
 //public route
 Route::post('login-user', [AuthController::class, 'loginUser']);
-Route::get('/user-profile/{subId}', [UserController::class, 'getProfile']);
+Route::get('/user-profile/{subId}', [UserController::class, 'getUserProfile']);
 
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -36,15 +36,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/borrow-requests', [BorrowEventController::class, 'viewBorrowRequests']);
     Route::post('/borrow-event', [BorrowEventController::class, 'borrowBook']);
     Route::get('/borrow-events', [BorrowEventController::class, 'viewBorrowEvents']);
-    Route::get('/borrow-events/{borrowEventId}', [BorrowEventController::class, 'viewBorrowEvent']);
+    Route::get('/borrow-events/{borrowEventId}', [BorrowEventController::class, 'viewBorrowRequest']);
     Route::post('/borrow-events/{borrowEventId}/cancel', [BorrowEventController::class, 'cancelBorrowEvent']);
-    Route::post('/borrow-events/set-meet-up/{borrowEventId}', [MeetUpDetailController::class, 'setMeetUp']);
+    Route::post('/borrow-events/set-meet-up/{borrowEventId}', [MeetUpDetailController::class, 'confirmAndSetMeetUp']);
     Route::post('/borrow-events/set-meet-up/confirm-meet-up/{borrowEventId}', [MeetUpDetailController::class, 'confirmMeetUp']);
     Route::post('/set-meet-up/{borrowEventId}/suggest-meet-up', [MeetUpDetailController::class, 'suggestMeetUp']);
     Route::post('/set-meet-up/{borrowEventId}/suggest-meet-up-confirmation', [MeetUpDetailController::class, 'confirmMeetUpSuggestion']);
     Route::post('/confirm-return-suggestion/{borrowEventId}', [ReturnDetailController::class, 'confirmReturnDetailSuggestion']);
     Route::post('/suggest-return-detail/{borrowEventId}', [ReturnDetailController::class, 'suggestReturnDetail']);
-    Route::post('/set-return-date/{borrowEventId}', [ReturnDetailController::class, 'setReturnDetail']);
+    Route::post('/set-return-date/{borrowEventId}', [ReturnDetailController::class, 'receiveBookAndSetReturnDetail']);
     Route::post('/reject-borrow-request/{borrowEventId}', [BorrowEventController::class, 'rejectBorrowRequest']);
     Route::post('/confirm-receive-book/{borrowEventId}', [BorrowEventController::class, 'confirmReceivedBook']);
     Route::get('/history', [BorrowEventController::class, 'getAllHistoryBorrowEvent']);
@@ -72,7 +72,7 @@ Route::get('/newly-added-books', [BookController::class, 'newlyAddedBooks']);
 
 
 Route::post('/admin/login', [AdminController::class, 'login']);
-Route::get('/user-profile/{subId}/get-books', [BookController::class, 'getUserBooks']);
+Route::get('/user-profile/{subId}/get-books', [BookController::class, 'getUserBookshelf']);
 Route::get('/books/search', [BookController::class, 'searchBooks']);
 Route::fallback(function () {
     return response()->json([

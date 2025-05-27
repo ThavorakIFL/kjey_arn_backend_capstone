@@ -46,17 +46,3 @@ class Book extends Model
         return $this->hasOne(BookAvailability::class);
     }
 }
-
-    // public function getAvailabilityStatusAttribute()
-    // {
-    //     if (!$this->availability) {
-    //         return null;
-    //     }
-
-    //     return match ($this->availability->availability) {
-    //         1 => 'Unavailable',
-    //         2 => 'Available',
-    //         3 => 'Suspended',
-    //         default => 'Unknown',
-    //     };
-    // }

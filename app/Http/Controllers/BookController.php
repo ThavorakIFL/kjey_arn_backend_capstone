@@ -30,7 +30,7 @@ class BookController extends Controller
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
             'condition' => 'required|integer|min:0|max:100',
-            'description' => 'required|string',
+            'description' => 'required|string|max:1000',
             'availability' => 'sometimes|integer|in:0,1,2',
             'genres' => 'required|array',
             'genres.*' => 'exists:genres,id',
@@ -264,7 +264,7 @@ class BookController extends Controller
         ]);
     }
 
-    public function getUserBooks($sub)
+    public function getUserBookshelf($sub)
     {
 
         if (!$sub) {

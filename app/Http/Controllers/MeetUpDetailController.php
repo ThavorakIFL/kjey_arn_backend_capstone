@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 
 class MeetUpDetailController extends Controller
 {
-    public function setMeetUp(Request $request, $borrowEventId)
+    public function confirmAndSetMeetUp(Request $request, $borrowEventId)
     {
         $borrowEvent = BorrowEvent::findOrFail($borrowEventId);
         if ($borrowEvent->borrowStatus?->borrow_status_id !== 1) {

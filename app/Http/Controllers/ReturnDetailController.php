@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 
 class ReturnDetailController extends Controller
 {
-    public function setReturnDetail(Request $request, $borrowEventId)
+    public function receiveBookAndSetReturnDetail(Request $request, $borrowEventId)
     {
         $borrowEvent = BorrowEvent::find($borrowEventId);
         if (!$borrowEvent) {

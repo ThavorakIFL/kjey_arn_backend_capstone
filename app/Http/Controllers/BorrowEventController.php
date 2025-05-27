@@ -382,7 +382,7 @@ class BorrowEventController extends Controller
         }
     }
 
-    public function viewBorrowEvent($id)
+    public function viewBorrowRequest($id)
     {
         try {
             $userId = auth()->id();
