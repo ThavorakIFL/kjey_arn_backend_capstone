@@ -26,6 +26,19 @@ class BorrowEventController extends Controller
                 'book_id' => 'required|exists:books,id',
                 'start_date' => 'required|date|after:today',
                 'end_date' => 'required|date|after:start_date',
+                'end_date' => [
+                    'required',
+                    'date',
+                    'after:start_date',
+                    function ($attribute, $value, $fail) use ($request) {
+                        $startDate = new \DateTime($request->start_date);
+                        $endDate = new \DateTime($value);
+                        $interval = $startDate->diff($endDate);
+                        if ($interval->days > 14) {
+                            $fail('The borrowing period cannot exceed 2 weeks (14 days).');
+                        }
+                    }
+                ],
             ]);
             $book = Book::findOrFail($validated['book_id']);
             if ($book->availability->availability_id !== 1) {
@@ -51,9 +64,7 @@ class BorrowEventController extends Controller
                 ]);
 
                 $requestedStatus = BorrowStatus::where('status', 'Pending')->firstOrFail();
-
-                $book->availability()->update(['availability_id' => 2]);
-
+                // $book->availability()->update(['availability_id' => 2]);
                 BorrowEventBorrowStatus::create([
                     'borrow_event_id' => $borrowEvent->id,
                     'borrow_status_id' => $requestedStatus->id,

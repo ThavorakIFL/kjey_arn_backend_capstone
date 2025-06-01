@@ -42,6 +42,11 @@ class MeetUpDetailController extends Controller
                 'final_location.required' => 'The location is required.',
                 'final_location.max' => 'The location cannot exceed 255 characters.',
             ]);
+            $book = $borrowEvent->book;
+            if (!$book) {
+                return response()->json(['message' => 'Book not found for this borrow event.'], 404);
+            }
+            $book->availability()->update(['availability_id' => 2]);
             $meetUpDetail = MeetUpDetail::where('borrow_event_id', $borrowEventId)->firstOrFail();
             $meetUpDetail->update([
                 'final_time' => $validated['final_time'],
