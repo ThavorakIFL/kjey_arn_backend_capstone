@@ -7,9 +7,37 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
+
 
 class UserController extends Controller
 {
+    public function searchUsers(Request $request)
+    {
+        try {
+            $query = $request->input('query');
+            if (!$query) {
+                Log::info('User search failed: Query not provided');
+                return response()->json(['error' => 'Query not provided'], 400);
+            }
+
+            $users = User::where('name', 'LIKE', '%' . $query . '%')
+                ->orWhere('email', 'LIKE', '%' . $query . '%')
+                ->get(['name', 'email', 'picture', 'sub']);
+
+            Log::info('User search completed', ['query' => $query, 'results' => count($users)]);
+
+            return response()->json($users);
+        } catch (\Exception $e) {
+            Log::error('User search exception: ' . $e->getMessage(), [
+                'query' => $request->input('query'),
+                'exception' => $e
+            ]);
+
+            return response()->json(['error' => 'An error occurred during search'], 500);
+        }
+    }
+
     public function getUserProfile($id)
     {
         $sub = $id;

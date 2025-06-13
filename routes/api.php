@@ -47,7 +47,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/set-return-date/{borrowEventId}', [ReturnDetailController::class, 'receiveBookAndSetReturnDetail']);
     Route::post('/reject-borrow-request/{borrowEventId}', [BorrowEventController::class, 'rejectBorrowRequest']);
     Route::post('/confirm-receive-book/{borrowEventId}', [BorrowEventController::class, 'confirmReceivedBook']);
+
+    Route::post('/report-borrow-event/{borrowEventId}', [BorrowEventController::class, 'reportBorrowEvent']);
+
     Route::get('/history', [BorrowEventController::class, 'getAllHistoryBorrowEvent']);
+
+    //Checking Routes
+    Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
 
     //Admin APIs
     Route::post('/admin/logout', [AdminController::class, 'logout']);
@@ -73,6 +79,7 @@ Route::get('/newly-added-books', [BookController::class, 'newlyAddedBooks']);
 
 Route::post('/admin/login', [AdminController::class, 'login']);
 Route::get('/user-profile/{subId}/get-books', [BookController::class, 'getUserBookshelf']);
+Route::get('/users/search', [UserController::class, 'searchUsers']);
 Route::get('/books/search', [BookController::class, 'searchBooks']);
 Route::fallback(function () {
     return response()->json([

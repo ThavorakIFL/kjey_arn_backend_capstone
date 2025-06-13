@@ -113,7 +113,11 @@ class BookController extends Controller
         $query = Book::with(['genres', 'pictures', 'availability', 'user']);
         $hasFilters = false;
 
-        // Step 1: Handle general search input (search across multiple fields)
+        // Only return available books (availability_id = 1)
+        $query->whereHas('availability', function ($q) {
+            $q->where('availability_id', 1);
+        });
+
         if ($request->filled('search')) {
             $searchTerm = $request->search;
             $query->where(function ($q) use ($searchTerm) {
@@ -227,22 +231,37 @@ class BookController extends Controller
 
     public function newlyAddedBooks(Request $request)
     {
-        $limit = $request->input('limit', 20);
+        try {
+            $limit = $request->input('limit', 14);
+            if (!is_numeric($limit) || $limit <= 0) {
+                $limit = 14;
+            }
 
-        if (!is_numeric($limit) || $limit <= 0) {
-            $limit = 20;
+            $books = Book::with(['genres', 'pictures', 'availability'])
+                ->whereHas('availability', function ($query) {
+                    $query->where('availability_id', 1);
+                })
+                ->orderBy('created_at', 'desc')
+                ->limit($limit)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'New books retrieved successfully',
+                'data' => $books
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error retrieving newly added books', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while retrieving newly added books',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $books = Book::with(['genres', 'pictures', 'availability'])
-            ->orderBy('created_at', 'desc')
-            ->limit($limit)
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'New books retrieved successfully',
-            'data' => $books
-        ]);
     }
 
 

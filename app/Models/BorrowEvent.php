@@ -47,4 +47,8 @@ class BorrowEvent extends Model
     {
         return $this->hasMany(BorrowEventCancelReason::class);
     }
+    public function borrowEventReport()
+    {
+        return $this->hasOne(BorrowEventReport::class);
+    }
 }
