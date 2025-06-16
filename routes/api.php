@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
@@ -47,13 +48,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/set-return-date/{borrowEventId}', [ReturnDetailController::class, 'receiveBookAndSetReturnDetail']);
     Route::post('/reject-borrow-request/{borrowEventId}', [BorrowEventController::class, 'rejectBorrowRequest']);
     Route::post('/confirm-receive-book/{borrowEventId}', [BorrowEventController::class, 'confirmReceivedBook']);
-
     Route::post('/report-borrow-event/{borrowEventId}', [BorrowEventController::class, 'reportBorrowEvent']);
-
     Route::get('/history', [BorrowEventController::class, 'getAllHistoryBorrowEvent']);
-
     //Checking Routes
     Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
+
+    //Checking Notifications
+    Route::get('/activities', [ActivityController::class, 'index']);
+
 
     //Admin APIs
     Route::post('/admin/logout', [AdminController::class, 'logout']);
