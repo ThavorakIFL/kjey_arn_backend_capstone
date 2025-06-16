@@ -454,7 +454,7 @@ class BorrowEventController extends Controller
             ])->where('borrower_id', $userId)->get();
             $filteredBorrowerEvents = $borrowerEvents->filter(function ($borrowEvent) {
                 return in_array($borrowEvent->borrowStatus->borrow_status_id ?? null, [1, 2, 4, 7, 8]);
-            });
+            })->values();
             $lenderEvents = BorrowEvent::with([
                 'lender',
                 'borrower',
@@ -467,8 +467,8 @@ class BorrowEventController extends Controller
                 'returnDetail.returnStatus'
             ])->where('lender_id', $userId)->get();
             $filteredLenderEvents = $lenderEvents->filter(function ($borrowEvent) {
-                return in_array($borrowEvent->borrowStatus->borrow_status_id ?? null, [1, 2, 4, 7, 8]);
-            });;
+                return in_array($borrowEvent->borrowStatus->borrow_status_id ?? null, [2, 4, 7, 8]);
+            })->values();
             if ($filteredBorrowerEvents->isEmpty() && $filteredLenderEvents->isEmpty()) {
                 return response()->json([
                     'success' => false,
@@ -510,7 +510,9 @@ class BorrowEventController extends Controller
                 'meetUpDetail.suggestions.user',
                 'meetUpDetail.suggestions.suggestionStatus',
                 'returnDetail',
-                'returnDetail.returnDetailReturnStatus'
+                'returnDetail.returnDetailReturnStatus',
+                'borrowEventRejectReason',
+                'borrowEventCancelReason'
             ])
                 ->where('id', $id)
                 ->where(function ($query) use ($userId) {

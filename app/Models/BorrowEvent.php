@@ -41,11 +41,11 @@ class BorrowEvent extends Model
     }
     public function borrowEventRejectReason()
     {
-        return $this->hasMany(BorrowEventRejectReason::class);
+        return $this->hasOne(BorrowEventRejectReason::class);
     }
     public function borrowEventCancelReason()
     {
-        return $this->hasMany(BorrowEventCancelReason::class);
+        return $this->hasOne(BorrowEventCancelReason::class);
     }
     public function borrowEventReport()
     {

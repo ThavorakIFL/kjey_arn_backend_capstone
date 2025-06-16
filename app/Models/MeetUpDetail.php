@@ -32,7 +32,7 @@ class MeetUpDetail extends Model
     }
     public function suggestions()
     {
-        return $this->hasMany(MeetUpSuggestion::class)->orderBy('id', 'asc');
+        return $this->hasMany(MeetUpSuggestion::class)->orderBy('id', 'desc');
     }
     public function latestSuggestion()
     {
