@@ -13,11 +13,6 @@ class Book extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'user_id',
         'title',
@@ -33,7 +28,7 @@ class Book extends Model
 
     public function pictures(): HasMany
     {
-        return $this->hasMany(BookPicture::class);
+        return $this->hasMany(BookPicture::class)->orderBy('order', 'asc');
     }
 
     public function genres(): BelongsToMany

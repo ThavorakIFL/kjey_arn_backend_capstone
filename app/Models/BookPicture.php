@@ -17,6 +17,7 @@ class BookPicture extends Model
     protected $fillable = [
         'book_id',
         'picture',
+        'order'
     ];
     /**
      * Get the book that owns the picture.

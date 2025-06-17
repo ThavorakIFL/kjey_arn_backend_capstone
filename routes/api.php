@@ -52,7 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/history', [BorrowEventController::class, 'getAllHistoryBorrowEvent']);
     //Checking Routes
     Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
-
+    Route::post('/check-unconfirmed-meetups', [BorrowEventController::class, 'checkForUnconfirmedMeetups']);
     //Checking Notifications
     Route::get('/activities', [ActivityController::class, 'index']);
 

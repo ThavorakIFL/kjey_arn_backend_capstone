@@ -26,81 +26,215 @@ class BookController extends Controller
 
     public function listBook(Request $request)
     {
+        // Enhanced validation with custom error messages
         $validator = Validator::make($request->all(), [
             'title' => 'required|string|max:255',
             'author' => 'nullable|string|max:255',
             'condition' => 'required|integer|min:0|max:100',
             'description' => 'required|string|max:1000',
             'availability' => 'sometimes|integer|in:0,1,2',
-            'genres' => 'required|array',
+            'genres' => 'required|array|min:1',
             'genres.*' => 'exists:genres,id',
-            'pictures' => 'nullable|array|max:6',
+            'pictures' => 'nullable|array|max:5',
             'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
-            'delete_pictures' => 'sometimes|array',
-            'delete_pictures.*' => 'integer|exists:book_pictures,id',
+        ], [
+            // Custom error messages
+            'title.required' => 'Book title is required',
+            'title.max' => 'Book title cannot exceed 255 characters',
+            'description.required' => 'Book description is required',
+            'description.max' => 'Description cannot exceed 1000 characters',
+            'condition.required' => 'Book condition is required',
+            'condition.min' => 'Condition must be at least 0',
+            'condition.max' => 'Condition cannot exceed 100',
+            'genres.required' => 'At least one genre must be selected',
+            'genres.min' => 'At least one genre must be selected',
+            'genres.*.exists' => 'Selected genre is invalid',
+            'pictures.max' => 'Maximum 5 images allowed',
+            'pictures.*.image' => 'File must be an image',
+            'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
+            'pictures.*.max' => 'Each image must be smaller than 2MB',
         ]);
+
         if ($validator->fails()) {
-            Log::error('Validation failed', ['errors' => $validator->errors()]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-        try {
-            DB::beginTransaction();
-            $book = Book::create([
+            $errors = $validator->errors();
+
+            // Log detailed validation errors for debugging
+            Log::error('Book listing validation failed', [
                 'user_id' => auth()->id(),
-                'title' => $request->input('title'),
-                'author' => $request->input('author'),
-                'condition' => $request->input('condition'),
-                'description' => $request->input('description'),
+                'errors' => $errors->toArray(),
+                'request_data' => $request->except(['pictures']) // Don't log file data
             ]);
 
-            BookAvailability::create([
-                'book_id' => $book->id,
-                'availability_id' => 1,
-            ]);
-
-            $book->genres()->attach($request->genres);
-
-            if ($request->hasFile('pictures')) {
-                foreach ($request->file('pictures') as $picture) {
-                    // Generate a unique filename
-                    $randomLength = random_int(30, 50);
-                    $filename = Str::random($randomLength) . '.' . $picture->getClientOriginalExtension();
-
-                    // Store the file
-                    $path = $picture->storeAs('books', $filename, 'public');
-
-                    // Create picture record with correctly formatted path
-                    BookPicture::create([
-                        'book_id' => $book->id,
-                        'picture' => 'storage/' . $path
-                    ]);
+            // Transform validation errors for better frontend handling
+            $transformedErrors = [];
+            foreach ($errors->toArray() as $field => $messages) {
+                // Handle picture validation errors specifically
+                if (strpos($field, 'pictures.') === 0) {
+                    $index = explode('.', $field)[1];
+                    $transformedErrors['pictures'][] = "Image " . ($index + 1) . ": " . implode(', ', $messages);
+                } else {
+                    $transformedErrors[$field] = $messages;
                 }
             }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Please check the form for errors',
+                'errors' => $transformedErrors,
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Validate file uploads before processing
+            if ($request->hasFile('pictures')) {
+                $pictures = $request->file('pictures');
+                if (!is_array($pictures)) {
+                    $pictures = [$pictures];
+                }
+
+                // Additional file validation
+                foreach ($pictures as $index => $picture) {
+                    if (!$picture->isValid()) {
+                        throw new \Exception("Image " . ($index + 1) . " failed to upload properly. Please try again.");
+                    }
+
+                    // Check file size again (in case client-side validation was bypassed)
+                    if ($picture->getSize() > 2048 * 1024) { // 2MB
+                        throw new \Exception("Image " . ($index + 1) . " is too large. Maximum size is 2MB.");
+                    }
+
+                    // Verify it's actually an image
+                    $imageInfo = getimagesize($picture->getPathname());
+                    if ($imageInfo === false) {
+                        throw new \Exception("Image " . ($index + 1) . " is not a valid image file.");
+                    }
+                }
+            }
+
+            // Create the book
+            $book = Book::create([
+                'user_id' => auth()->id(),
+                'title' => trim($request->input('title')),
+                'author' => trim($request->input('author')),
+                'condition' => $request->input('condition'),
+                'description' => trim($request->input('description')),
+            ]);
+
+            if (!$book) {
+                throw new \Exception('Failed to create book record');
+            }
+
+            // Create book availability
+            $availability = BookAvailability::create([
+                'book_id' => $book->id,
+                'availability_id' => 1, // Default to available
+            ]);
+
+            if (!$availability) {
+                throw new \Exception('Failed to create book availability record');
+            }
+
+            Log::info('Created availability record', [
+                'availability_id' => $availability->id,
+                'book_id' => $availability->book_id,
+                'availability_value' => $availability->availability_id
+            ]);
+
+            // Attach genres
+            try {
+                $book->genres()->attach($request->genres);
+            } catch (\Exception $e) {
+                throw new \Exception('Failed to attach genres: ' . $e->getMessage());
+            }
+
+            // Handle picture uploads with ordering
+            if ($request->hasFile('pictures')) {
+                $pictures = $request->file('pictures');
+                if (!is_array($pictures)) {
+                    $pictures = [$pictures];
+                }
+
+                foreach ($pictures as $index => $picture) {
+                    try {
+                        // Generate a unique filename
+                        $randomLength = random_int(30, 50);
+                        $extension = $picture->getClientOriginalExtension();
+                        $filename = Str::random($randomLength) . '.' . $extension;
+
+                        // Store the file
+                        $path = $picture->storeAs('books', $filename, 'public');
+
+                        if (!$path) {
+                            throw new \Exception("Failed to store image " . ($index + 1));
+                        }
+
+                        // Create picture record with order based on array index
+                        $pictureRecord = BookPicture::create([
+                            'book_id' => $book->id,
+                            'picture' => 'storage/' . $path,
+                            'order' => $index + 1
+                        ]);
+
+                        if (!$pictureRecord) {
+                            throw new \Exception("Failed to create database record for image " . ($index + 1));
+                        }
+                    } catch (\Exception $e) {
+                        // Clean up any uploaded files if there's an error
+                        if (isset($path) && Storage::disk('public')->exists($path)) {
+                            Storage::disk('public')->delete($path);
+                        }
+                        throw new \Exception("Image upload failed for image " . ($index + 1) . ": " . $e->getMessage());
+                    }
+                }
+            }
+
             DB::commit();
 
+            // Load relationships for response
             $book->load(['pictures', 'genres', 'availability']);
+
+            Log::info('Book created successfully', [
+                'book_id' => $book->id,
+                'user_id' => auth()->id(),
+                'title' => $book->title
+            ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Book created successfully',
+                'message' => 'Book listed successfully!',
                 'data' => [
                     'book' => $book,
-                    'availability_status' => $book->availability_status
+                    'availability_status' => $book->availability_status ?? 'Available'
                 ]
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('An error occurred while creating the book', ['error' => $e->getMessage()]);
+
+            Log::error('Book creation failed', [
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->except(['pictures'])
+            ]);
+
+            // Return user-friendly error message
+            $errorMessage = $e->getMessage();
+
+            // Don't expose sensitive information in production
+            if (app()->environment('production') && !str_contains($errorMessage, 'Image')) {
+                $errorMessage = 'An error occurred while creating your book listing. Please try again.';
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'An error occurred while creating the book',
-                'error' => $e->getMessage()
+                'message' => $errorMessage,
+                'errors' => [
+                    'general' => [$errorMessage]
+                ]
             ], 500);
-        };
+        }
     }
     /**
      * Search for books based on various criteria.
@@ -112,11 +246,6 @@ class BookController extends Controller
     {
         $query = Book::with(['genres', 'pictures', 'availability', 'user']);
         $hasFilters = false;
-
-        // Only return available books (availability_id = 1)
-        $query->whereHas('availability', function ($q) {
-            $q->where('availability_id', 1);
-        });
 
         if ($request->filled('search')) {
             $searchTerm = $request->search;
@@ -389,6 +518,8 @@ class BookController extends Controller
             'new_pictures' => 'sometimes|array',
             'new_pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
 
+            'image_order' => 'sometimes|string', // JSON string of image order
+            'final_image_order' => 'sometimes|string', // JSON string of final unified order
         ]);
 
         if ($validator->fails()) {
@@ -399,7 +530,6 @@ class BookController extends Controller
             ], 422);
         }
 
-
         // Find book
         $book = Book::find($id);
 
@@ -409,7 +539,6 @@ class BookController extends Controller
                 'message' => 'Book not found'
             ], 404);
         }
-
 
         // Check ownership
         if ($book->user_id !== auth()->id()) {
@@ -463,6 +592,7 @@ class BookController extends Controller
                 }
             }
 
+            // Delete pictures if requested
             if ($request->has('delete_pictures')) {
                 $picturesToDelete = $request->input('delete_pictures');
 
@@ -483,31 +613,79 @@ class BookController extends Controller
                 }
             }
 
+            // Handle new pictures first
+            $newPictureIds = [];
             if ($request->hasFile('new_pictures')) {
                 $files = $request->file('new_pictures');
                 if (!is_array($files)) {
                     $files = [$files];
                 }
+
                 $currentImageCount = BookPicture::where('book_id', $book->id)->count();
-                // $currentImageCount = $book->pictures()->count();
-                $newPicturesCount = count($files); // ✅ we already have $files array here
+                $newPicturesCount = count($files);
+
                 if (($currentImageCount + $newPicturesCount) > 5) {
                     return response()->json([
                         'success' => false,
                         'message' => 'You cannot upload more than 5 images in total.',
                     ], 422);
                 }
-                foreach ($files as $picture) {
+
+                // Save new pictures with temporary order (we'll fix this after)
+                foreach ($files as $index => $picture) {
                     $filename = Str::random(40) . '.' . $picture->getClientOriginalExtension();
                     $path = $picture->storeAs('books', $filename, 'public');
 
-                    BookPicture::create([
+                    $newPicture = BookPicture::create([
                         'book_id' => $book->id,
-                        'picture' => 'storage/' . $path
+                        'picture' => 'storage/' . $path,
+                        'order' => 9999 + $index // Temporary high order
                     ]);
+
+                    $newPictureIds[] = $newPicture->id;
                 }
             }
 
+            // Handle final image order if provided (this should include both existing and new images)
+            if ($request->filled('final_image_order')) {
+                $finalOrder = json_decode($request->input('final_image_order'), true);
+
+                if (is_array($finalOrder)) {
+                    foreach ($finalOrder as $orderData) {
+                        if (isset($orderData['id']) && isset($orderData['order']) && isset($orderData['type'])) {
+                            if ($orderData['type'] === 'existing') {
+                                // Update existing image order
+                                BookPicture::where('id', $orderData['id'])
+                                    ->where('book_id', $book->id)
+                                    ->update(['order' => $orderData['order']]);
+                            } elseif ($orderData['type'] === 'new') {
+                                // Update new image order using the index
+                                $newPictureIndex = $orderData['id']; // This should be the index in the new pictures array
+                                if (isset($newPictureIds[$newPictureIndex])) {
+                                    BookPicture::where('id', $newPictureIds[$newPictureIndex])
+                                        ->where('book_id', $book->id)
+                                        ->update(['order' => $orderData['order']]);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback: Handle image order updates for existing images only
+                if ($request->filled('image_order')) {
+                    $imageOrder = json_decode($request->input('image_order'), true);
+
+                    if (is_array($imageOrder)) {
+                        foreach ($imageOrder as $orderData) {
+                            if (isset($orderData['id']) && isset($orderData['order'])) {
+                                BookPicture::where('id', $orderData['id'])
+                                    ->where('book_id', $book->id)
+                                    ->update(['order' => $orderData['order']]);
+                            }
+                        }
+                    }
+                }
+            }
 
             $book->save();
 

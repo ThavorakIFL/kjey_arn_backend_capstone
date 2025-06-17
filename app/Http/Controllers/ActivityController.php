@@ -43,6 +43,8 @@ class ActivityController extends Controller
             'borrowStatus',
             'meetUpDetail',
             'meetUpDetail.suggestions.user',
+            'meetUpDetail.suggestions.suggestionStatus',
+            'meetUpDetail.meetUpDetailMeetUpStatus',
             'borrowEventRejectReason',
             'borrowEventCancelReason'
         ])
@@ -63,6 +65,8 @@ class ActivityController extends Controller
     private function extractActivitiesFromBorrowEvent(BorrowEvent $borrowEvent, int $currentUserId): Collection
     {
         $activities = collect();
+
+        // 1. Borrow Request Created
         if ($borrowEvent->lender_id === $currentUserId) {
             $activities->push([
                 'id' => "borrow_request_{$borrowEvent->id}",
@@ -134,7 +138,7 @@ class ActivityController extends Controller
             }
         }
 
-        // 5. Meetup Details Set
+        // 5. Meetup Details Set (Lender sets initial meetup)
         if ($borrowEvent->meetUpDetail && $borrowEvent->meetUpDetail->final_location && $borrowEvent->borrower_id === $currentUserId) {
             $activities->push([
                 'id' => "meetup_set_{$borrowEvent->id}",
@@ -152,19 +156,40 @@ class ActivityController extends Controller
             ]);
         }
 
-        // 6. Meetup Suggestions
+        // 6. Borrower Confirms Meetup Details
+        if ($borrowEvent->meetUpDetail && $borrowEvent->meetUpDetail->meetUpDetailMeetUpStatus) {
+            $meetupStatus = $borrowEvent->meetUpDetail->meetUpDetailMeetUpStatus;
+
+            // Status 2 = Confirmed by borrower
+            if ($meetupStatus->meet_up_status_id == 2 && $borrowEvent->lender_id === $currentUserId) {
+                $activities->push([
+                    'id' => "meetup_confirmed_{$borrowEvent->id}",
+                    'type' => 'meetup_confirmed',
+                    'message' => "{$borrowEvent->borrower->name} confirmed the meetup details for \"{$borrowEvent->book->title}\"",
+                    'actor_name' => $borrowEvent->borrower->name,
+                    'target_user_id' => $borrowEvent->lender_id,
+                    'book_title' => $borrowEvent->book->title,
+                    'borrow_event_id' => $borrowEvent->id,
+                    'timestamp' => $meetupStatus->updated_at,
+                    'additional_data' => [
+                        'location' => $borrowEvent->meetUpDetail->final_location,
+                        'time' => $borrowEvent->meetUpDetail->final_time,
+                    ]
+                ]);
+            }
+        }
+
+        // 7. Meetup Suggestions by Borrower
         if ($borrowEvent->meetUpDetail && $borrowEvent->meetUpDetail->suggestions) {
             foreach ($borrowEvent->meetUpDetail->suggestions as $suggestion) {
-                $targetUserId = ($suggestion->suggested_by === $borrowEvent->borrower_id)
-                    ? $borrowEvent->lender_id : $borrowEvent->borrower_id;
-
-                if ($targetUserId === $currentUserId) {
+                // Show suggestion to the lender when borrower suggests
+                if ($suggestion->suggested_by === $borrowEvent->borrower_id && $borrowEvent->lender_id === $currentUserId) {
                     $activities->push([
                         'id' => "meetup_suggested_{$suggestion->id}",
                         'type' => 'meetup_suggested',
                         'message' => "{$suggestion->user->name} suggested new meetup details for \"{$borrowEvent->book->title}\"",
                         'actor_name' => $suggestion->user->name,
-                        'target_user_id' => $targetUserId,
+                        'target_user_id' => $borrowEvent->lender_id,
                         'book_title' => $borrowEvent->book->title,
                         'borrow_event_id' => $borrowEvent->id,
                         'timestamp' => $suggestion->created_at,
@@ -175,8 +200,73 @@ class ActivityController extends Controller
                         ]
                     ]);
                 }
+
+                // 8. Lender Accepts/Rejects Meetup Suggestion (CORRECTED!)
+                if ($suggestion->suggestionStatus && $suggestion->suggestionStatus->isNotEmpty()) {
+                    // Get the latest status for this suggestion
+                    $latestStatus = $suggestion->suggestionStatus->last();
+
+                    if ($latestStatus->suggestion_status_id == 2) {
+                        // Status 2 = Accepted
+                        if ($suggestion->suggested_by === $borrowEvent->borrower_id && $borrowEvent->borrower_id === $currentUserId) {
+                            $activities->push([
+                                'id' => "meetup_suggestion_accepted_{$suggestion->id}",
+                                'type' => 'meetup_suggestion_accepted',
+                                'message' => "{$borrowEvent->lender->name} accepted your meetup suggestion for \"{$borrowEvent->book->title}\"",
+                                'actor_name' => $borrowEvent->lender->name,
+                                'target_user_id' => $borrowEvent->borrower_id,
+                                'book_title' => $borrowEvent->book->title,
+                                'borrow_event_id' => $borrowEvent->id,
+                                'timestamp' => $latestStatus->updated_at,
+                                'additional_data' => [
+                                    'accepted_location' => $suggestion->suggested_location,
+                                    'accepted_time' => $suggestion->suggested_time,
+                                    'original_reason' => $suggestion->suggested_reason,
+                                ]
+                            ]);
+                        }
+                    } elseif ($latestStatus->suggestion_status_id == 3) {
+                        // Status 3 = Rejected
+                        if ($suggestion->suggested_by === $borrowEvent->borrower_id && $borrowEvent->borrower_id === $currentUserId) {
+                            $activities->push([
+                                'id' => "meetup_suggestion_rejected_{$suggestion->id}",
+                                'type' => 'meetup_suggestion_rejected',
+                                'message' => "{$borrowEvent->lender->name} declined your meetup suggestion for \"{$borrowEvent->book->title}\"",
+                                'actor_name' => $borrowEvent->lender->name,
+                                'target_user_id' => $borrowEvent->borrower_id,
+                                'book_title' => $borrowEvent->book->title,
+                                'borrow_event_id' => $borrowEvent->id,
+                                'timestamp' => $latestStatus->updated_at,
+                                'additional_data' => [
+                                    'rejected_location' => $suggestion->suggested_location,
+                                    'rejected_time' => $suggestion->suggested_time,
+                                    'original_reason' => $suggestion->suggested_reason,
+                                ]
+                            ]);
+                        }
+                    }
+                }
             }
         }
+
+        // 10. Book Return Confirmed (NEW!)
+        if ($borrowEvent->borrowStatus && $borrowEvent->borrowStatus->borrow_status_id == 5) {
+            // Status 5 = Completed/Returned
+            if ($borrowEvent->borrower_id === $currentUserId) {
+                $activities->push([
+                    'id' => "book_returned_{$borrowEvent->id}",
+                    'type' => 'book_returned',
+                    'message' => "{$borrowEvent->lender->name} confirmed receiving the returned book \"{$borrowEvent->book->title}\"",
+                    'actor_name' => $borrowEvent->lender->name,
+                    'target_user_id' => $borrowEvent->borrower_id,
+                    'book_title' => $borrowEvent->book->title,
+                    'borrow_event_id' => $borrowEvent->id,
+                    'timestamp' => $borrowEvent->borrowStatus->updated_at,
+                    'additional_data' => []
+                ]);
+            }
+        }
+
         return $activities;
     }
 }

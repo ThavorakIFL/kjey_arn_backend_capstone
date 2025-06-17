@@ -42,6 +42,18 @@ class BorrowEventController extends Controller
                 ],
             ]);
             $book = Book::findOrFail($validated['book_id']);
+            $activeBorrowsCount = BorrowEvent::where('borrower_id', auth()->id())
+                ->whereHas('borrowStatus', function ($query) {
+                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]); // Pending, Accepted, In Progress
+                })
+                ->count();
+
+            if ($activeBorrowsCount >= 3) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You can only have 3 active borrow requests at a time. Please complete or cancel existing requests first.'
+                ], 400);
+            }
             if ($book->availability->availability_id !== 1) {
                 return response()->json([
                     'success' => false,
@@ -617,18 +629,20 @@ class BorrowEventController extends Controller
                 'count' => $borrowEvents->count()
             ]);
 
+            // Empty history is a valid state, not an error
             if ($borrowEvents->isEmpty()) {
-                Log::info('No history borrow events found', ['user_id' => $userId]);
+                Log::info('No history borrow events found - returning empty result', ['user_id' => $userId]);
                 return response()->json([
-                    'success' => false,
+                    'success' => true,
+                    'data' => [],
                     'message' => 'No history borrow events found'
-                ], 404);
+                ], 200);
             }
 
             return response()->json([
                 'success' => true,
                 'data' => $borrowEvents
-            ]);
+            ], 200);
         } catch (\Exception $e) {
             Log::error('Failed to retrieve history borrow events', [
                 'user_id' => auth()->id(),
@@ -640,7 +654,8 @@ class BorrowEventController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve history borrow events'
+                'message' => 'Failed to retrieve history borrow events',
+                'data' => []
             ], 500);
         }
     }
@@ -735,6 +750,154 @@ class BorrowEventController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for return borrow events'
+            ], 500);
+        }
+    }
+
+    public function checkForUnconfirmedMeetups()
+    {
+        try {
+            Log::info('Checking for unconfirmed meetup details');
+            $borrowEvents = BorrowEvent::with([
+                'borrower',
+                'lender',
+                'book',
+                'borrowStatus',
+                'meetUpDetail',
+                'meetUpDetail.meetUpDetailMeetUpStatus',
+                'returnDetail',
+            ])->whereHas('borrowStatus', function ($q) {
+                $q->where('borrow_status_id', 2); // Status 2 = Accepted (meetup details set)
+            })->whereHas('meetUpDetail', function ($q) {
+                $q->where('start_date', now()->format('Y-m-d')); // Today is the start date
+            })->whereHas('meetUpDetail.meetUpDetailMeetUpStatus', function ($q) {
+                $q->where('meet_up_status_id', 1); // Status 1 = Pending (not confirmed by borrower)
+            })->get();
+
+            Log::info('Found unconfirmed meetup events', ['count' => $borrowEvents->count()]);
+
+            if ($borrowEvents->isEmpty()) {
+                Log::info('No unconfirmed meetup events found for today');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no unconfirmed meetups found for today',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = [];
+            $today = now()->format('Y-m-d');
+            Log::info('Processing unconfirmed meetups for date', ['date' => $today]);
+
+            foreach ($borrowEvents as $borrowEvent) {
+                try {
+                    Log::info('Processing borrow event for auto-cancellation', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'borrower' => $borrowEvent->borrower->name,
+                        'lender' => $borrowEvent->lender->name,
+                        'book' => $borrowEvent->book->title,
+                        'start_date' => $borrowEvent->meetUpDetail->start_date,
+                        'meetup_status' => $borrowEvent->meetUpDetail->meetUpDetailMeetUpStatus->meet_up_status_id
+                    ]);
+
+                    DB::beginTransaction();
+
+                    // Update book availability back to available
+                    $book = Book::find($borrowEvent->book_id);
+                    if ($book) {
+                        $book->availability()->update(['availability_id' => 1]);
+                    }
+
+                    // Update borrow status to cancelled (status_id = 6)
+                    $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
+                        ->update(['borrow_status_id' => 6]);
+
+                    // Create cancellation reason - system cancelled due to unconfirmed meetup
+                    BorrowEventCancelReason::create([
+                        'borrow_event_id' => $borrowEvent->id,
+                        'cancelled_by' => $borrowEvent->lender_id, // System cancellation attributed to lender
+                        'reason' => 'Borrow event cancelled due to borrower not accepting meetup details on the scheduled start date.',
+                    ]);
+
+                    // Clean up related records
+                    BookAvailability::where('book_id', $borrowEvent->book_id)
+                        ->update(['availability_id' => 1]);
+
+                    // Delete meetup and return detail statuses
+                    if ($borrowEvent->meetUpDetail) {
+                        MeetUpDetailMeetUpStatus::where('meet_up_detail_id', $borrowEvent->meetUpDetail->id)->delete();
+                    }
+
+                    if ($borrowEvent->returnDetail) {
+                        ReturnDetailReturnStatus::where('return_detail_id', $borrowEvent->returnDetail->id)->delete();
+                    }
+
+                    // Delete meetup and return details
+                    MeetUpDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+                    ReturnDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+
+                    DB::commit();
+
+                    $cancelledEvents[] = $borrowEvent;
+
+                    Log::info('Successfully auto-cancelled borrow event', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'reason' => 'Unconfirmed meetup on start date'
+                    ]);
+                } catch (\Exception $e) {
+                    DB::rollback();
+                    Log::error('Failed to auto-cancel individual borrow event', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine()
+                    ]);
+                    // Continue with next event even if one fails
+                    continue;
+                }
+            }
+
+            if (empty($cancelledEvents)) {
+                Log::warning('No events were successfully cancelled despite finding unconfirmed meetups');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no events could be cancelled',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = collect($cancelledEvents);
+            Log::info('Auto-cancellation completed successfully', [
+                'cancelled_count' => $cancelledEvents->count()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Check completed - unconfirmed meetups cancelled successfully',
+                'data' => $cancelledEvents->map(function ($event) {
+                    return [
+                        'borrow_event_id' => $event->id,
+                        'borrower' => $event->borrower->name,
+                        'lender' => $event->lender->name,
+                        'book_title' => $event->book->title,
+                        'start_date' => $event->meetUpDetail->start_date ?? null,
+                    ];
+                }),
+                'cancelled_count' => $cancelledEvents->count()
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Failed to check for unconfirmed meetups', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check for unconfirmed meetups'
             ], 500);
         }
     }
