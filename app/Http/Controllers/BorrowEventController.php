@@ -41,7 +41,24 @@ class BorrowEventController extends Controller
                     }
                 ],
             ]);
+
             $book = Book::findOrFail($validated['book_id']);
+
+            // Check if user has an active/pending borrow request for this book
+            $hasActiveBorrowRequest = BorrowEvent::where('borrower_id', auth()->id())
+                ->where('book_id', $validated['book_id'])
+                ->whereHas('borrowStatus', function ($query) {
+                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]); // Pending, Accepted, In Progress, etc.
+                })
+                ->exists();
+
+            if ($hasActiveBorrowRequest) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have an active borrow request for this book. Please wait until your current request is completed, cancelled, or rejected before making a new one.'
+                ], 400);
+            }
+
             $activeBorrowsCount = BorrowEvent::where('borrower_id', auth()->id())
                 ->whereHas('borrowStatus', function ($query) {
                     $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]); // Pending, Accepted, In Progress
@@ -54,12 +71,14 @@ class BorrowEventController extends Controller
                     'message' => 'You can only have 3 active borrow requests at a time. Please complete or cancel existing requests first.'
                 ], 400);
             }
+
             if ($book->availability->availability_id !== 1) {
                 return response()->json([
                     'success' => false,
                     'message' => 'The book is not available for borrowing'
                 ], 400);
             }
+
             if (auth()->id() === $book->user_id) {
                 return response()->json([
                     'success' => false,
@@ -311,6 +330,7 @@ class BorrowEventController extends Controller
                 'borrower',
                 'lender',
                 'book',
+                'book.availability',
                 'book.pictures',
                 'borrowStatus',
                 'meetUpDetail',
@@ -515,6 +535,7 @@ class BorrowEventController extends Controller
                 'borrower',
                 'lender',
                 'book',
+                'book.availability',
                 'book.pictures',
                 'borrowStatus',
                 'meetUpDetail',
@@ -898,6 +919,151 @@ class BorrowEventController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for unconfirmed meetups'
+            ], 500);
+        }
+    }
+
+    public function checkForUnacceptedRequests()
+    {
+        try {
+            Log::info('Checking for unaccepted borrow requests');
+            $borrowEvents = BorrowEvent::with([
+                'borrower',
+                'lender',
+                'book',
+                'borrowStatus',
+                'meetUpDetail',
+                'returnDetail',
+            ])->whereHas('borrowStatus', function ($q) {
+                $q->where('borrow_status_id', 1); // Status 1 = Pending (not accepted by lender)
+            })->whereHas('meetUpDetail', function ($q) {
+                $q->where('start_date', now()->format('Y-m-d')); // Today is the start date
+            })->get();
+
+            Log::info('Found unaccepted borrow request events', ['count' => $borrowEvents->count()]);
+
+            if ($borrowEvents->isEmpty()) {
+                Log::info('No unaccepted borrow request events found for today');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no unaccepted borrow requests found for today',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = [];
+            $today = now()->format('Y-m-d');
+            Log::info('Processing unaccepted borrow requests for date', ['date' => $today]);
+
+            foreach ($borrowEvents as $borrowEvent) {
+                try {
+                    Log::info('Processing borrow event for auto-cancellation due to unaccepted request', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'borrower' => $borrowEvent->borrower->name,
+                        'lender' => $borrowEvent->lender->name,
+                        'book' => $borrowEvent->book->title,
+                        'start_date' => $borrowEvent->meetUpDetail->start_date ?? null,
+                        'current_status' => $borrowEvent->borrowStatus->borrow_status_id
+                    ]);
+
+                    DB::beginTransaction();
+
+                    // Update book availability back to available
+                    $book = Book::find($borrowEvent->book_id);
+                    if ($book) {
+                        $book->availability()->update(['availability_id' => 1]);
+                    }
+
+                    // Update borrow status to cancelled (status_id = 6)
+                    $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
+                        ->update(['borrow_status_id' => 6]);
+
+                    // Create cancellation reason - system cancelled due to lender not accepting request
+                    BorrowEventCancelReason::create([
+                        'borrow_event_id' => $borrowEvent->id,
+                        'cancelled_by' => $borrowEvent->borrower_id, // System cancellation attributed to borrower
+                        'reason' => 'Borrow request has been cancelled because the lender didn\'t accept the request.',
+                    ]);
+
+                    // Clean up related records
+                    BookAvailability::where('book_id', $borrowEvent->book_id)
+                        ->update(['availability_id' => 1]);
+
+                    // Delete meetup and return detail statuses if they exist
+                    if ($borrowEvent->meetUpDetail) {
+                        MeetUpDetailMeetUpStatus::where('meet_up_detail_id', $borrowEvent->meetUpDetail->id)->delete();
+                    }
+
+                    if ($borrowEvent->returnDetail) {
+                        ReturnDetailReturnStatus::where('return_detail_id', $borrowEvent->returnDetail->id)->delete();
+                    }
+
+                    // Delete meetup and return details if they exist
+                    MeetUpDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+                    ReturnDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+
+                    DB::commit();
+
+                    $cancelledEvents[] = $borrowEvent;
+
+                    Log::info('Successfully auto-cancelled borrow event due to unaccepted request', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'reason' => 'Lender did not accept request by start date'
+                    ]);
+                } catch (\Exception $e) {
+                    DB::rollback();
+                    Log::error('Failed to auto-cancel individual borrow event for unaccepted request', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine()
+                    ]);
+                    // Continue with next event even if one fails
+                    continue;
+                }
+            }
+
+            if (empty($cancelledEvents)) {
+                Log::warning('No events were successfully cancelled despite finding unaccepted requests');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no events could be cancelled',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = collect($cancelledEvents);
+            Log::info('Auto-cancellation for unaccepted requests completed successfully', [
+                'cancelled_count' => $cancelledEvents->count()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Check completed - unaccepted borrow requests cancelled successfully',
+                'data' => $cancelledEvents->map(function ($event) {
+                    return [
+                        'borrow_event_id' => $event->id,
+                        'borrower' => $event->borrower->name,
+                        'lender' => $event->lender->name,
+                        'book_title' => $event->book->title,
+                        'start_date' => $event->meetUpDetail->start_date ?? null,
+                    ];
+                }),
+                'cancelled_count' => $cancelledEvents->count()
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Failed to check for unaccepted borrow requests', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check for unaccepted borrow requests'
             ], 500);
         }
     }

@@ -53,6 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
     //Checking Routes
     Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
     Route::post('/check-unconfirmed-meetups', [BorrowEventController::class, 'checkForUnconfirmedMeetups']);
+    Route::post('/check-unaccepted-borrow-requests', [BorrowEventController::class, 'checkForUnacceptedRequests']);
     //Checking Notifications
     Route::get('/activities', [ActivityController::class, 'index']);
 
