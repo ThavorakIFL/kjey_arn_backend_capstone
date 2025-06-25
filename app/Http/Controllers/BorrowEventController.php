@@ -295,11 +295,7 @@ class BorrowEventController extends Controller
                 'borrow_event_id' => $borrowEvent->id,
                 'reported_by' => $userId,
                 'reason' => $request->input('reason'),
-            ]);
-
-            Log::info('Borrow event reported successfully', [
-                'borrow_event_id' => $id,
-                'user_id' => $userId
+                'status' => false,
             ]);
 
             return response()->json([
@@ -545,7 +541,8 @@ class BorrowEventController extends Controller
                 'returnDetail',
                 'returnDetail.returnDetailReturnStatus',
                 'borrowEventRejectReason',
-                'borrowEventCancelReason'
+                'borrowEventCancelReason',
+                'borrowEventReport',
             ])
                 ->where('id', $id)
                 ->where(function ($query) use ($userId) {

@@ -27,13 +27,11 @@ Route::get('/user-profile/{subId}', [UserController::class, 'getUserProfile']);
 
 
 Route::middleware('auth:sanctum')->group(function () {
-    //User APIs
+    //Frontend APIs
     Route::put('/user-profile/{subId}', [UserController::class, 'editBio']);
-    //Book APIs
     Route::post('/list-book', [BookController::class, 'listBook']);
     Route::post('/book/edit/{id}', [BookController::class, 'editBook']);
     Route::delete('/book/delete/{id}', [BookController::class, 'deleteBook']);
-    //Borrow Event APIs
     Route::get('/borrow-requests', [BorrowEventController::class, 'viewBorrowRequests']);
     Route::post('/borrow-event', [BorrowEventController::class, 'borrowBook']);
     Route::get('/borrow-events', [BorrowEventController::class, 'viewBorrowEvents']);
@@ -50,12 +48,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/confirm-receive-book/{borrowEventId}', [BorrowEventController::class, 'confirmReceivedBook']);
     Route::post('/report-borrow-event/{borrowEventId}', [BorrowEventController::class, 'reportBorrowEvent']);
     Route::get('/history', [BorrowEventController::class, 'getAllHistoryBorrowEvent']);
-    //Checking Routes
     Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
     Route::post('/check-unconfirmed-meetups', [BorrowEventController::class, 'checkForUnconfirmedMeetups']);
     Route::post('/check-unaccepted-borrow-requests', [BorrowEventController::class, 'checkForUnacceptedRequests']);
-    //Checking Notifications
     Route::get('/activities', [ActivityController::class, 'index']);
+    Route::get('/locations', [AdminController::class, 'getLocations']);
 
 
     //Admin APIs
@@ -64,22 +61,47 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/all-data-number', [AdminController::class, 'getAllData']);
     Route::get('/admin/all-users', [AdminController::class, 'getAllUsers']);
     Route::get('/admin/get-user/{userId}', [AdminController::class, 'getUserById']);
-    Route::post('/admin/search/users', [AdminController::class, 'searchUsers']);
+    Route::get('/admin/get-user/{userId}/books', [AdminController::class, 'getUserBooks']);
+    Route::get('/admin/get-user/{userId}/borrow-events', [AdminController::class, 'getUserBorrowEvents']);
+    Route::post('/admin/search/users', [AdminController::class, 'users']);
+    Route::post('/admin/search/books', [AdminController::class, 'books']);
+    Route::get('/admin/genres', [AdminController::class, 'getGenres']);
     Route::get('/admin/all-books', [AdminController::class, 'getAllBooks']);
     Route::get('/admin/get-book/{bookId}', [AdminController::class, 'getBookById']);
+    Route::get('/admin/dashboard/stats', [AdminController::class, 'dashboard']);
+    Route::get('/admin/users', [AdminController::class, 'index']);
+    Route::get('/admin/users/total', [AdminController::class, 'getTotalUsers']);
+    Route::get('/admin/users/user/{id}', [AdminController::class, 'fetchUserbyId']);
+    Route::get('/admin/users/books/{id}', [AdminController::class, 'fetchUserBooksById']);
+    Route::get('/admin/users/borrows/{id}', [AdminController::class, 'fetchUserBorrowEventsById']);
+    Route::patch('/admin/users/{id}/status', [AdminController::class, 'updateUserStatus']);
+    Route::get('/admin/books', [AdminController::class, 'indexBooks']);
+    Route::get('/admin/books/total', [AdminController::class, 'getTotalBooks']);
+    Route::get('/admin/books/{id}', [AdminController::class, 'getBookById']);
+    Route::patch('/admin/books/{id}/status', [AdminController::class, 'updateBookStatus']);
+    Route::get('/admin/genres', [AdminController::class, 'getGenres']);
+    Route::get('/admin/genres/popular-genres', [AdminController::class, 'getPopularGenres']);
+    Route::get('/admin/borrow-activities', [AdminController::class, 'indexBorrowActivities']);
+    Route::get('/admin/borrow-activities/{id}', [AdminController::class, 'getBorrowActivityById']);
+    Route::get('/admin/reports/borrow-activities', [AdminController::class, 'getBorrowActivityReport']);
+    Route::patch('/admin/reports/borrow-activities/{id}/status', [AdminController::class, 'updateBorrowActivityReportStatus']);
+    Route::get('/admin/borrow-statuses', [AdminController::class, 'getBorrowStatuses']);
+    Route::get('/admin/dashboard/borrow-activities', [AdminController::class, 'dashboardBorrowEvents']);
+    Route::get('/admin/locations', [AdminController::class, 'getLocations']);
+    Route::post('/admin/locations', [AdminController::class, 'createLocation']);
+    Route::put('/admin/locations/{id}', [AdminController::class, 'updateLocation']);
+    Route::delete('/admin/locations/{id}', [AdminController::class, 'deleteLocation']);
+    Route::get('/admin/total-admins', [AdminController::class, 'getTotalAdmins']);
+    Route::post('/admin/create-admin', [AdminController::class, 'createAdmin']);
 });
 
-//Public APIs
 
-//User APIs
 
-//Book APIs
+
+
 Route::get('/all-books', [BookController::class, 'viewAllBooks']);
 Route::get('/get-books/{bookId}', [BookController::class, 'viewBook']);
 Route::get('/newly-added-books', [BookController::class, 'newlyAddedBooks']);
-//Admin APIs
-
-
 Route::post('/admin/login', [AdminController::class, 'login']);
 Route::get('/user-profile/{subId}/get-books', [BookController::class, 'getUserBookshelf']);
 Route::get('/users/search', [UserController::class, 'searchUsers']);
@@ -89,7 +111,3 @@ Route::fallback(function () {
         'message' => 'Route Not Found'
     ], 404);
 });
-
-
-
-// Route::post('/user-profile/{subId}', [UserController::class, 'updateProfilePicture']);

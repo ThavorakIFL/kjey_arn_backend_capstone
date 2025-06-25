@@ -15,6 +15,7 @@ class User extends Authenticatable
         'sub',
         'picture',
         'bio',
+        'status',
     ];
 
     public function borrowedEvents()
@@ -26,9 +27,8 @@ class User extends Authenticatable
     {
         return $this->hasMany(BorrowEvent::class, 'lender_id');
     }
-
-    // public function changeReturnDetails()
-    // {
-    //     return $this->hasMany(ChangeReturnDetail::class, 'changed_by_user_id');
-    // }
+    public function books()
+    {
+        return $this->hasMany(Book::class, 'user_id');
+    }
 }

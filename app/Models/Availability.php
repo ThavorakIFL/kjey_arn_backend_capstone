@@ -12,7 +12,7 @@ class Availability extends Model
     protected $table = 'availability';
 
     protected $fillable = [
-        'avaialbility',
+        'availbility',
     ];
 
     public function bookAvailabilities()

@@ -13,6 +13,9 @@ class BorrowEventReport extends Model
         'borrow_event_id',
         'reported_by',
         'reason',
+        'status',
+        'created_at',
+        'updated_at',
     ];
 
     public function borrowEvent()

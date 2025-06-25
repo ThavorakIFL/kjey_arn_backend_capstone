@@ -19,6 +19,7 @@ class Book extends Model
         'author',
         'condition',
         'description',
+        'status',
     ];
 
     public function user(): BelongsTo
