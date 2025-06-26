@@ -67,6 +67,7 @@ class AuthController extends Controller
                     'sub' => $validatedData['sub'],
                     'picture' => $localPicturePath ?? $pictureUrl,
                     'bio' => $validatedData['bio'] ?? '',
+                    'status' => 1,
                 ]);
             } else {
 
