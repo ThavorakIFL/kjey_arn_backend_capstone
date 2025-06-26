@@ -120,6 +120,7 @@ class BookController extends Controller
                 'author' => trim($request->input('author')),
                 'condition' => $request->input('condition'),
                 'description' => trim($request->input('description')),
+                'status' => 1,
             ]);
 
             if (!$book) {
@@ -242,6 +243,7 @@ class BookController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
+
     public function searchBooks(Request $request)
     {
         $query = Book::with(['genres', 'pictures', 'availability', 'user']);
@@ -270,7 +272,7 @@ class BookController extends Controller
         if ($request->filled('genre_ids')) {
             $genreIds = is_array($request->genre_ids)
                 ? $request->genre_ids
-                : explode(',', $request->genre_ids); // Allow comma-separated input
+                : explode(',', $request->genre_ids);
 
             $query->whereHas('genres', function ($q) use ($genreIds) {
                 $q->whereIn('genres.id', $genreIds);
@@ -278,7 +280,6 @@ class BookController extends Controller
             $hasFilters = true;
         }
 
-        // Step 3: Apply user filtering if sub is provided (last step)
         if ($request->filled('sub')) {
             $user = User::where('sub', $request->sub)->first();
             if ($user) {
@@ -292,69 +293,34 @@ class BookController extends Controller
             }
         }
 
-        // Pagination
-        $perPage = $request->input('per_page', 20);
-        $paginator = $query->paginate($perPage);
+        // Pagination logic
+        $perPage = $request->get('per_page', 14); // Default 12 books per page
+        $page = $request->get('page', 1);
 
-        // Only return an error if filters were applied and no results found
-        if ($hasFilters && $paginator->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No books found matching your search criteria',
-                'data' => [
-                    'pagination' => [
-                        'total' => 0,
-                        'per_page' => $perPage,
-                        'current_page' => 1,
-                        'last_page' => 1
-                    ],
-                    'books' => [],
+        // Validate pagination parameters
+        $perPage = max(1, min(100, (int)$perPage)); // Between 1 and 100
+        $page = max(1, (int)$page);
+
+        // Get paginated results
+        $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'books' => $paginatedBooks->items(),
+                'pagination' => [
+                    'current_page' => $paginatedBooks->currentPage(),
+                    'last_page' => $paginatedBooks->lastPage(),
+                    'per_page' => $paginatedBooks->perPage(),
+                    'total' => $paginatedBooks->total(),
+                    'from' => $paginatedBooks->firstItem(),
+                    'to' => $paginatedBooks->lastItem(),
+                    'has_more_pages' => $paginatedBooks->hasMorePages(),
+                    'prev_page_url' => $paginatedBooks->previousPageUrl(),
+                    'next_page_url' => $paginatedBooks->nextPageUrl(),
                 ]
-            ]);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Search completed successfully',
-            'data' => [
-                'pagination' => [
-                    'total' => $paginator->total(),
-                    'per_page' => $paginator->perPage(),
-                    'current_page' => $paginator->currentPage(),
-                    'last_page' => $paginator->lastPage()
-                ],
-                'books' => $paginator->items(),
-            ]
-        ]);
-    }
-
-    public function viewAllBooks(Request $request)
-    {
-        $perPage = $request->input('per_page', 20);
-        $genres = $request->input('genres', []);
-        if (!is_numeric($perPage) || $perPage <= 0) {
-            $perPage = 20;
-        }
-        $query = Book::with(['genres', 'pictures', 'availability'])->orderBy('created_at', 'desc');
-        if (!empty($genres)) {
-            $query->whereHas('genres', function ($query) use ($genres) {
-                $query->whereIn("genres.id", $genres);
-            });
-        }
-        $paginator = $query->paginate($perPage);
-        $books = $paginator->items();
-        return response()->json([
-            'success' => true,
-            'message' => 'Books retrieved successfully',
-            'data' => [
-                'pagination' => [
-                    'total' => $paginator->total(),
-                    'per_page' => $paginator->perPage(),
-                    'current_page' => $paginator->currentPage(),
-                    'last_page' => $paginator->lastPage()
-                ],
-                'books' => $books,
-            ]
+            ],
+            'message' => 'Books retrieved successfully'
         ]);
     }
 

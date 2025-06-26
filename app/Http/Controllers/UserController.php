@@ -16,25 +16,68 @@ class UserController extends Controller
     {
         try {
             $query = $request->input('query');
-            if (!$query) {
-                Log::info('User search failed: Query not provided');
-                return response()->json(['error' => 'Query not provided'], 400);
+
+            // Build the user query
+            $userQuery = User::select(['name', 'email', 'picture', 'sub']);
+
+            // Apply search filter only if query is provided
+            if ($query && trim($query) !== '') {
+                $userQuery->where(function ($q) use ($query) {
+                    $q->where('name', 'LIKE', '%' . $query . '%')
+                        ->orWhere('email', 'LIKE', '%' . $query . '%');
+                });
             }
 
-            $users = User::where('name', 'LIKE', '%' . $query . '%')
-                ->orWhere('email', 'LIKE', '%' . $query . '%')
-                ->get(['name', 'email', 'picture', 'sub']);
+            // Pagination logic
+            $perPage = $request->get('per_page', 14); // Default 14 users per page
+            $page = $request->get('page', 1);
 
-            Log::info('User search completed', ['query' => $query, 'results' => count($users)]);
+            // Validate pagination parameters
+            $perPage = max(1, min(100, (int)$perPage)); // Between 1 and 100
+            $page = max(1, (int)$page);
 
-            return response()->json($users);
+            // Get paginated results
+            $paginatedUsers = $userQuery->paginate($perPage, ['*'], 'page', $page);
+
+            Log::info('User search completed', [
+                'query' => $query ?: 'all users',
+                'results' => $paginatedUsers->total(),
+                'page' => $page,
+                'per_page' => $perPage
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'users' => $paginatedUsers->items(),
+                    'pagination' => [
+                        'current_page' => $paginatedUsers->currentPage(),
+                        'last_page' => $paginatedUsers->lastPage(),
+                        'per_page' => $paginatedUsers->perPage(),
+                        'total' => $paginatedUsers->total(),
+                        'from' => $paginatedUsers->firstItem(),
+                        'to' => $paginatedUsers->lastItem(),
+                        'has_more_pages' => $paginatedUsers->hasMorePages(),
+                        'prev_page_url' => $paginatedUsers->previousPageUrl(),
+                        'next_page_url' => $paginatedUsers->nextPageUrl(),
+                    ]
+                ],
+                'message' => 'Users retrieved successfully'
+            ]);
         } catch (\Exception $e) {
             Log::error('User search exception: ' . $e->getMessage(), [
                 'query' => $request->input('query'),
                 'exception' => $e
             ]);
 
-            return response()->json(['error' => 'An error occurred during search'], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred during search',
+                'data' => [
+                    'users' => [],
+                    'pagination' => null
+                ]
+            ], 500);
         }
     }
 
