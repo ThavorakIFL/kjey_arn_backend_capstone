@@ -36,7 +36,7 @@ class BookController extends Controller
             'genres' => 'required|array|min:1',
             'genres.*' => 'exists:genres,id',
             'pictures' => 'nullable|array|max:5',
-            'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:10240',
+            'pictures.*' => 'image|mimes:jpeg,png,jpg,gif',
         ], [
             // Custom error messages
             'title.required' => 'Book title is required',
@@ -52,8 +52,35 @@ class BookController extends Controller
             'pictures.max' => 'Maximum 5 images allowed',
             'pictures.*.image' => 'File must be an image',
             'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
-            'pictures.*.max' => 'Each image must be smaller than 2MB',
         ]);
+
+        //         $validator = Validator::make($request->all(), [
+        //     'title' => 'required|string|max:255',
+        //     'author' => 'nullable|string|max:255',
+        //     'condition' => 'required|integer|min:0|max:100',
+        //     'description' => 'required|string|max:1000',
+        //     'availability' => 'sometimes|integer|in:0,1,2',
+        //     'genres' => 'required|array|min:1',
+        //     'genres.*' => 'exists:genres,id',
+        //     'pictures' => 'nullable|array|max:5',
+        //     'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:10240',
+        // ], [
+        //     // Custom error messages
+        //     'title.required' => 'Book title is required',
+        //     'title.max' => 'Book title cannot exceed 255 characters',
+        //     'description.required' => 'Book description is required',
+        //     'description.max' => 'Description cannot exceed 1000 characters',
+        //     'condition.required' => 'Book condition is required',
+        //     'condition.min' => 'Condition must be at least 0',
+        //     'condition.max' => 'Condition cannot exceed 100',
+        //     'genres.required' => 'At least one genre must be selected',
+        //     'genres.min' => 'At least one genre must be selected',
+        //     'genres.*.exists' => 'Selected genre is invalid',
+        //     'pictures.max' => 'Maximum 5 images allowed',
+        //     'pictures.*.image' => 'File must be an image',
+        //     'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
+        //     'pictures.*.max' => 'Each image must be smaller than 2MB',
+        // ]);
 
         if ($validator->fails()) {
             $errors = $validator->errors();
