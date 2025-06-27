@@ -20,35 +20,57 @@ use Illuminate\Support\Facades\Log;
 
 class BorrowEventController extends Controller
 {
+
     public function borrowBook(Request $request)
     {
         try {
+            // Fixed validation - combine all end_date rules into one array
             $validated = $request->validate([
                 'book_id' => 'required|exists:books,id',
                 'start_date' => 'required|date|after:today',
-                'end_date' => 'required|date|after:start_date',
                 'end_date' => [
                     'required',
                     'date',
                     'after:start_date',
                     function ($attribute, $value, $fail) use ($request) {
+
                         $startDate = new \DateTime($request->start_date);
                         $endDate = new \DateTime($value);
                         $interval = $startDate->diff($endDate);
+
+
                         if ($interval->days > 14) {
+
                             $fail('The borrowing period cannot exceed 2 weeks (14 days).');
                         }
                     }
                 ],
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {;
 
+            // Manually return validation response
+            return response()->json([
+                'message' => 'The given data was invalid.',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+
+
+            return response()->json([
+                'message' => 'Validation failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+
+        try {
             $book = Book::findOrFail($validated['book_id']);
 
+            // ... rest of your existing code (checks and database operations)
             // Check if user has an active/pending borrow request for this book
             $hasActiveBorrowRequest = BorrowEvent::where('borrower_id', auth()->id())
                 ->where('book_id', $validated['book_id'])
                 ->whereHas('borrowStatus', function ($query) {
-                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]); // Pending, Accepted, In Progress, etc.
+                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]);
                 })
                 ->exists();
 
@@ -61,7 +83,7 @@ class BorrowEventController extends Controller
 
             $activeBorrowsCount = BorrowEvent::where('borrower_id', auth()->id())
                 ->whereHas('borrowStatus', function ($query) {
-                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]); // Pending, Accepted, In Progress
+                    $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]);
                 })
                 ->count();
 
@@ -86,60 +108,62 @@ class BorrowEventController extends Controller
                 ], 400);
             }
 
-            try {
-                DB::beginTransaction();
+            DB::beginTransaction();
 
-                $borrowEvent = BorrowEvent::create([
-                    'borrower_id' => auth()->id(),
-                    'lender_id' => $book->user_id,
-                    'book_id' => $validated['book_id'],
-                ]);
+            $borrowEvent = BorrowEvent::create([
+                'borrower_id' => auth()->id(),
+                'lender_id' => $book->user_id,
+                'book_id' => $validated['book_id'],
+            ]);
 
-                $requestedStatus = BorrowStatus::where('status', 'Pending')->firstOrFail();
-                // $book->availability()->update(['availability_id' => 2]);
-                BorrowEventBorrowStatus::create([
-                    'borrow_event_id' => $borrowEvent->id,
-                    'borrow_status_id' => $requestedStatus->id,
-                ]);
+            $requestedStatus = BorrowStatus::where('status', 'Pending')->firstOrFail();
 
-                MeetUpDetail::create([
-                    'start_date' => $validated['start_date'],
-                    'end_date' => $validated['end_date'],
-                    'borrow_event_id' => $borrowEvent->id,
-                ]);
+            BorrowEventBorrowStatus::create([
+                'borrow_event_id' => $borrowEvent->id,
+                'borrow_status_id' => $requestedStatus->id,
+            ]);
 
-                MeetUpDetailMeetUpStatus::create([
-                    'meet_up_detail_id' => $borrowEvent->meetUpDetail->id,
-                    'meet_up_status_id' => 1,
-                ]);
+            $meetUpDetail = MeetUpDetail::create([
+                'start_date' => $validated['start_date'],
+                'end_date' => $validated['end_date'],
+                'borrow_event_id' => $borrowEvent->id,
+            ]);
 
-                ReturnDetail::create([
-                    'borrow_event_id' => $borrowEvent->id,
-                    'return_date' => $validated['end_date'],
-                ]);
+            MeetUpDetailMeetUpStatus::create([
+                'meet_up_detail_id' => $meetUpDetail->id,
+                'meet_up_status_id' => 1,
+            ]);
 
-                ReturnDetailReturnStatus::create([
-                    'return_detail_id' => $borrowEvent->returnDetail->id,
-                    'return_status_id' => 1,
-                ]);
+            $returnDetail = ReturnDetail::create([
+                'borrow_event_id' => $borrowEvent->id,
+                'return_date' => $validated['end_date'],
+            ]);
 
-                DB::commit();
+            ReturnDetailReturnStatus::create([
+                'return_detail_id' => $returnDetail->id,
+                'return_status_id' => 1,
+            ]);
 
-                return response()->json([
-                    'message' => 'Borrow event created successfully',
-                    'borrow_event' => $borrowEvent->load('borrower', 'lender', 'book', 'borrowStatus', 'meetUpDetail', 'meetUpDetail.meetUpStatus', 'returnDetail', 'returnDetail.returnStatus'),
-                ], 201);
-            } catch (\Exception $e) {
-                DB::rollback();
-                throw $e;
-            }
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Borrow Successfully!',
+                'borrow_event' => $borrowEvent->load('borrower', 'lender', 'book', 'borrowStatus', 'meetUpDetail', 'meetUpDetail.meetUpStatus', 'returnDetail', 'returnDetail.returnStatus'),
+            ], 201);
         } catch (\Exception $e) {
+            if (isset($borrowEvent)) {
+                DB::rollback();
+            }
+
+
+
             return response()->json([
                 'message' => 'Failed to create borrow request',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
+
 
     public function cancelBorrowEvent(Request $request, $id)
     {
