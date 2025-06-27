@@ -36,7 +36,7 @@ class BookController extends Controller
             'genres' => 'required|array|min:1',
             'genres.*' => 'exists:genres,id',
             'pictures' => 'nullable|array|max:5',
-            'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
+            'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:10240',
         ], [
             // Custom error messages
             'title.required' => 'Book title is required',
