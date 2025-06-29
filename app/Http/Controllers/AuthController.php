@@ -83,15 +83,19 @@ class AuthController extends Controller
                 // Update user with the appropriate fields
                 $user->update($updateData);
             }
-            // Revoke existing tokens if you want only one active token per user
-            $user->tokens()->delete();
-
-            // Create a new Sanctum token for the user
             $token = $user->createToken('API Token')->plainTextToken;
+            // Calculate expiration time based on config
+            $expirationMinutes = config('sanctum.expiration'); // Gets your 5 minutes from config
+            $expiresAt = $expirationMinutes ? now()->addMinutes($expirationMinutes) : null;
+
+            // Create a new Sanctum token with explicit expiration
+            $token = $user->createToken('API Token', ['*'], $expiresAt)->plainTextToken;
 
             return response()->json([
                 'user' => $user,
-                'token' => $token, // This will be in the format "id|token"
+                'token' => $token,
+                'expires_at' => $expiresAt ? $expiresAt->toISOString() : null,
+                'expires_in' => $expiresAt ? $expiresAt->diffInSeconds(now()) : null, // seconds until expiration
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Something went wrong. Please try again: ' . $e->getMessage()], 500);
