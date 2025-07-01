@@ -643,48 +643,171 @@ class BorrowEventController extends Controller
         }
     }
 
-    public function getAllHistoryBorrowEvent()
+    // public function getAllHistoryBorrowEvent()
+    // {
+    //     try {
+    //         $userId = auth()->id();
+    //         Log::info('Fetching history borrow events', ['user_id' => $userId]);
+
+    //         $borrowEvents = BorrowEvent::with([
+    //             'borrower',
+    //             'lender',
+    //             'book',
+    //             'book.pictures',
+    //             'borrowStatus',
+    //             'meetUpDetail',
+    //             'returnDetail',
+    //         ])->where(function ($q) use ($userId) {
+    //             $q->where('borrower_id', $userId)
+    //                 ->orWhere('lender_id', $userId);
+    //         })
+    //             ->whereHas('borrowStatus', function ($q) {
+    //                 $q->whereIn('borrow_status_id', [3, 5, 6]);
+    //             })
+    //             ->orderBy('created_at', 'desc')->get();
+
+    //         Log::info('History borrow events retrieved', [
+    //             'user_id' => $userId,
+    //             'count' => $borrowEvents->count()
+    //         ]);
+
+    //         // Empty history is a valid state, not an error
+    //         if ($borrowEvents->isEmpty()) {
+    //             Log::info('No history borrow events found - returning empty result', ['user_id' => $userId]);
+    //             return response()->json([
+    //                 'success' => true,
+    //                 'data' => [],
+    //                 'message' => 'No history borrow events found'
+    //             ], 200);
+    //         }
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $borrowEvents
+    //         ], 200);
+    //     } catch (\Exception $e) {
+    //         Log::error('Failed to retrieve history borrow events', [
+    //             'user_id' => auth()->id(),
+    //             'error' => $e->getMessage(),
+    //             'file' => $e->getFile(),
+    //             'line' => $e->getLine(),
+    //             'trace' => $e->getTraceAsString()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Failed to retrieve history borrow events',
+    //             'data' => []
+    //         ], 500);
+    //     }
+    // }
+
+    public function getAllHistoryBorrowEvent(Request $request)
     {
         try {
+            Log::info('Getting All History');
             $userId = auth()->id();
-            Log::info('Fetching history borrow events', ['user_id' => $userId]);
+            // Validate request parameters
+            $validated = $request->validate([
+                'page' => 'integer|min:1',
+                'per_page' => 'integer|min:1|max:100',
+                'status' => 'string|in:3,5,6', // Only allow valid status IDs
+            ]);
 
-            $borrowEvents = BorrowEvent::with([
+            $page = $validated['page'] ?? 1;
+            $perPage = $validated['per_page'] ?? 12;
+            $statusFilter = $validated['status'] ?? null;
+
+            Log::info('Fetching history borrow events', [
+                'user_id' => $userId,
+                'page' => $page,
+                'per_page' => $perPage,
+                'status_filter' => $statusFilter
+            ]);
+
+            // Build the query
+            $query = BorrowEvent::with([
                 'borrower',
                 'lender',
                 'book',
                 'book.pictures',
                 'borrowStatus',
+                'borrowStatus.borrowStatus', // Include the actual status details
                 'meetUpDetail',
                 'returnDetail',
             ])->where(function ($q) use ($userId) {
                 $q->where('borrower_id', $userId)
                     ->orWhere('lender_id', $userId);
-            })
-                ->whereHas('borrowStatus', function ($q) {
+            });
+
+            // Apply status filter if provided
+            if ($statusFilter) {
+                $query->whereHas('borrowStatus', function ($q) use ($statusFilter) {
+                    $q->where('borrow_status_id', $statusFilter);
+                });
+            } else {
+                // Default: show only completed, cancelled, and rejected
+                $query->whereHas('borrowStatus', function ($q) {
                     $q->whereIn('borrow_status_id', [3, 5, 6]);
-                })
-                ->orderBy('created_at', 'desc')->get();
+                });
+            }
+
+            // Get paginated results
+            $borrowEvents = $query->orderBy('created_at', 'desc')
+                ->paginate($perPage, ['*'], 'page', $page);
 
             Log::info('History borrow events retrieved', [
                 'user_id' => $userId,
-                'count' => $borrowEvents->count()
+                'total' => $borrowEvents->total(),
+                'current_page' => $borrowEvents->currentPage(),
+                'last_page' => $borrowEvents->lastPage(),
+                'per_page' => $borrowEvents->perPage(),
+                'status_filter' => $statusFilter
             ]);
+
+            // Format pagination data
+            $paginationData = [
+                'current_page' => $borrowEvents->currentPage(),
+                'last_page' => $borrowEvents->lastPage(),
+                'per_page' => $borrowEvents->perPage(),
+                'total' => $borrowEvents->total(),
+                'from' => $borrowEvents->firstItem(),
+                'to' => $borrowEvents->lastItem(),
+                'has_more_pages' => $borrowEvents->hasMorePages(),
+            ];
 
             // Empty history is a valid state, not an error
             if ($borrowEvents->isEmpty()) {
-                Log::info('No history borrow events found - returning empty result', ['user_id' => $userId]);
+                Log::info('No history borrow events found - returning empty result', [
+                    'user_id' => $userId,
+                    'status_filter' => $statusFilter
+                ]);
                 return response()->json([
                     'success' => true,
                     'data' => [],
+                    'pagination' => $paginationData,
                     'message' => 'No history borrow events found'
                 ], 200);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $borrowEvents
+                'data' => $borrowEvents->items(), // Get the actual items
+                'pagination' => $paginationData
             ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Validation failed for history borrow events request', [
+                'user_id' => auth()->id(),
+                'errors' => $e->errors(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid request parameters',
+                'errors' => $e->errors(),
+                'data' => []
+            ], 422);
         } catch (\Exception $e) {
             Log::error('Failed to retrieve history borrow events', [
                 'user_id' => auth()->id(),
