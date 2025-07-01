@@ -12,7 +12,7 @@ use App\Models\BookPicture;
 use App\Models\Book;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
-
+use Illuminate\Support\Facades\Cache;
 
 
 class BookController extends Controller
@@ -54,33 +54,6 @@ class BookController extends Controller
             'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
         ]);
 
-        //         $validator = Validator::make($request->all(), [
-        //     'title' => 'required|string|max:255',
-        //     'author' => 'nullable|string|max:255',
-        //     'condition' => 'required|integer|min:0|max:100',
-        //     'description' => 'required|string|max:1000',
-        //     'availability' => 'sometimes|integer|in:0,1,2',
-        //     'genres' => 'required|array|min:1',
-        //     'genres.*' => 'exists:genres,id',
-        //     'pictures' => 'nullable|array|max:5',
-        //     'pictures.*' => 'image|mimes:jpeg,png,jpg,gif|max:10240',
-        // ], [
-        //     // Custom error messages
-        //     'title.required' => 'Book title is required',
-        //     'title.max' => 'Book title cannot exceed 255 characters',
-        //     'description.required' => 'Book description is required',
-        //     'description.max' => 'Description cannot exceed 1000 characters',
-        //     'condition.required' => 'Book condition is required',
-        //     'condition.min' => 'Condition must be at least 0',
-        //     'condition.max' => 'Condition cannot exceed 100',
-        //     'genres.required' => 'At least one genre must be selected',
-        //     'genres.min' => 'At least one genre must be selected',
-        //     'genres.*.exists' => 'Selected genre is invalid',
-        //     'pictures.max' => 'Maximum 5 images allowed',
-        //     'pictures.*.image' => 'File must be an image',
-        //     'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
-        //     'pictures.*.max' => 'Each image must be smaller than 2MB',
-        // ]);
 
         if ($validator->fails()) {
             $errors = $validator->errors();
@@ -273,6 +246,33 @@ class BookController extends Controller
 
     public function searchBooks(Request $request)
     {
+        try {
+            // Create cache key based on request parameters
+            $cacheKey = 'books_search_' . md5(json_encode($request->all()));
+
+            // Try to get from cache first (cache for 5 minutes)
+            $cachedResult = Cache::remember($cacheKey, 300, function () use ($request) {
+                return $this->performSearch($request);
+            });
+
+            return response()->json($cachedResult);
+        } catch (\Exception $e) {
+            Log::error('Error in searchBooks method', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while searching for books',
+                'error' => app()->environment('production') ? 'Server error' : $e->getMessage()
+            ], 500);
+        }
+    }
+
+    private function performSearch(Request $request)
+    {
         $query = Book::with(['genres', 'pictures', 'availability', 'user']);
         $hasFilters = false;
 
@@ -284,16 +284,19 @@ class BookController extends Controller
                     ->orWhere('description', 'like', '%' . $searchTerm . '%');
             });
             $hasFilters = true;
+            Log::info('Search filter applied', ['term' => $searchTerm]);
         }
 
         if ($request->filled('title')) {
             $query->where('title', 'like', '%' . $request->title . '%');
             $hasFilters = true;
+            Log::info('Title filter applied', ['title' => $request->title]);
         }
 
         if ($request->filled('author')) {
             $query->where('author', 'like', '%' . $request->author . '%');
             $hasFilters = true;
+            Log::info('Author filter applied', ['author' => $request->author]);
         }
 
         if ($request->filled('genre_ids')) {
@@ -305,6 +308,7 @@ class BookController extends Controller
                 $q->whereIn('genres.id', $genreIds);
             });
             $hasFilters = true;
+            Log::info('Genre filter applied', ['genre_ids' => $genreIds]);
         }
 
         if ($request->filled('sub')) {
@@ -312,26 +316,40 @@ class BookController extends Controller
             if ($user) {
                 $query->where('user_id', $user->id);
                 $hasFilters = true;
+                Log::info('User filter applied', ['sub' => $request->sub, 'user_id' => $user->id]);
             } else {
-                return response()->json([
+                Log::warning('User not found for sub', ['sub' => $request->sub]);
+                return [
                     'success' => false,
                     'message' => 'User not found for the provided sub',
-                ], 404);
+                ];
             }
         }
 
         // Pagination logic
-        $perPage = $request->get('per_page', 14); // Default 12 books per page
+        $perPage = $request->get('per_page', 14);
         $page = $request->get('page', 1);
 
         // Validate pagination parameters
-        $perPage = max(1, min(100, (int)$perPage)); // Between 1 and 100
+        $perPage = max(1, min(100, (int)$perPage));
         $page = max(1, (int)$page);
+
+        Log::info('Search pagination parameters', [
+            'page' => $page,
+            'per_page' => $perPage,
+            'has_filters' => $hasFilters
+        ]);
 
         // Get paginated results
         $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
 
-        return response()->json([
+        Log::info('Search completed successfully', [
+            'total_results' => $paginatedBooks->total(),
+            'current_page' => $paginatedBooks->currentPage(),
+            'result_count' => count($paginatedBooks->items())
+        ]);
+
+        return [
             'success' => true,
             'data' => [
                 'books' => $paginatedBooks->items(),
@@ -348,8 +366,120 @@ class BookController extends Controller
                 ]
             ],
             'message' => 'Books retrieved successfully'
-        ]);
+        ];
     }
+
+    // public function searchBooks(Request $request)
+    // {
+    //     try {
+    //         $query = Book::with(['genres', 'pictures', 'availability', 'user']);
+    //         $hasFilters = false;
+
+    //         if ($request->filled('search')) {
+    //             $searchTerm = $request->search;
+    //             $query->where(function ($q) use ($searchTerm) {
+    //                 $q->where('title', 'like', '%' . $searchTerm . '%')
+    //                     ->orWhere('author', 'like', '%' . $searchTerm . '%')
+    //                     ->orWhere('description', 'like', '%' . $searchTerm . '%');
+    //             });
+    //             $hasFilters = true;
+    //             Log::info('Search filter applied', ['term' => $searchTerm]);
+    //         }
+
+    //         if ($request->filled('title')) {
+    //             $query->where('title', 'like', '%' . $request->title . '%');
+    //             $hasFilters = true;
+    //             Log::info('Title filter applied', ['title' => $request->title]);
+    //         }
+
+    //         if ($request->filled('author')) {
+    //             $query->where('author', 'like', '%' . $request->author . '%');
+    //             $hasFilters = true;
+    //             Log::info('Author filter applied', ['author' => $request->author]);
+    //         }
+
+    //         if ($request->filled('genre_ids')) {
+    //             $genreIds = is_array($request->genre_ids)
+    //                 ? $request->genre_ids
+    //                 : explode(',', $request->genre_ids);
+
+    //             $query->whereHas('genres', function ($q) use ($genreIds) {
+    //                 $q->whereIn('genres.id', $genreIds);
+    //             });
+    //             $hasFilters = true;
+    //             Log::info('Genre filter applied', ['genre_ids' => $genreIds]);
+    //         }
+
+    //         if ($request->filled('sub')) {
+    //             $user = User::where('sub', $request->sub)->first();
+    //             if ($user) {
+    //                 $query->where('user_id', $user->id);
+    //                 $hasFilters = true;
+    //                 Log::info('User filter applied', ['sub' => $request->sub, 'user_id' => $user->id]);
+    //             } else {
+    //                 Log::warning('User not found for sub', ['sub' => $request->sub]);
+    //                 return response()->json([
+    //                     'success' => false,
+    //                     'message' => 'User not found for the provided sub',
+    //                 ], 404);
+    //             }
+    //         }
+
+    //         // Pagination logic
+    //         $perPage = $request->get('per_page', 14); // Default 14 books per page
+    //         $page = $request->get('page', 1);
+
+    //         // Validate pagination parameters
+    //         $perPage = max(1, min(100, (int)$perPage)); // Between 1 and 100
+    //         $page = max(1, (int)$page);
+
+    //         Log::info('Search pagination parameters', [
+    //             'page' => $page,
+    //             'per_page' => $perPage,
+    //             'has_filters' => $hasFilters
+    //         ]);
+
+    //         // Get paginated results
+    //         $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
+
+    //         Log::info('Search completed successfully', [
+    //             'total_results' => $paginatedBooks->total(),
+    //             'current_page' => $paginatedBooks->currentPage(),
+    //             'result_count' => count($paginatedBooks->items())
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => [
+    //                 'books' => $paginatedBooks->items(),
+    //                 'pagination' => [
+    //                     'current_page' => $paginatedBooks->currentPage(),
+    //                     'last_page' => $paginatedBooks->lastPage(),
+    //                     'per_page' => $paginatedBooks->perPage(),
+    //                     'total' => $paginatedBooks->total(),
+    //                     'from' => $paginatedBooks->firstItem(),
+    //                     'to' => $paginatedBooks->lastItem(),
+    //                     'has_more_pages' => $paginatedBooks->hasMorePages(),
+    //                     'prev_page_url' => $paginatedBooks->previousPageUrl(),
+    //                     'next_page_url' => $paginatedBooks->nextPageUrl(),
+    //                 ]
+    //             ],
+    //             'message' => 'Books retrieved successfully'
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         Log::error('Error in searchBooks method', [
+    //             'error' => $e->getMessage(),
+    //             'trace' => $e->getTraceAsString(),
+    //             'request_data' => $request->all()
+    //         ]);
+
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'An error occurred while searching for books',
+    //             'error' => app()->environment('production') ? 'Server error' : $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
     public function newlyAddedBooks(Request $request)
     {

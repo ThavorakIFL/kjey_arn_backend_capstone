@@ -811,7 +811,7 @@ class BorrowEventController extends Controller
             ])->whereHas('borrowStatus', function ($q) {
                 $q->where('borrow_status_id', 2); // Status 2 = Accepted (meetup details set)
             })->whereHas('meetUpDetail', function ($q) {
-                $q->where('start_date', now()->format('Y-m-d')); // Today is the start date
+                $q->where('start_date', '<=', now()->format('Y-m-d')); // Today is the start date
             })->whereHas('meetUpDetail.meetUpDetailMeetUpStatus', function ($q) {
                 $q->where('meet_up_status_id', 1); // Status 1 = Pending (not confirmed by borrower)
             })->get();
@@ -958,7 +958,7 @@ class BorrowEventController extends Controller
             ])->whereHas('borrowStatus', function ($q) {
                 $q->where('borrow_status_id', 1); // Status 1 = Pending (not accepted by lender)
             })->whereHas('meetUpDetail', function ($q) {
-                $q->where('start_date', now()->format('Y-m-d')); // Today is the start date
+                $q->where('start_date', '<=', now()->format('Y-m-d')); // Today is the start date
             })->get();
 
             Log::info('Found unaccepted borrow request events', ['count' => $borrowEvents->count()]);
@@ -1085,6 +1085,279 @@ class BorrowEventController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for unaccepted borrow requests'
+            ], 500);
+        }
+    }
+
+    public function checkForOverdueAcceptedEvents()
+    {
+        try {
+            Log::info('Checking for overdue accepted borrow events');
+            $borrowEvents = BorrowEvent::with([
+                'borrower',
+                'lender',
+                'book',
+                'borrowStatus',
+                'meetUpDetail',
+                'returnDetail',
+            ])->whereHas('borrowStatus', function ($q) {
+                $q->where('borrow_status_id', 2); // Status 2 = Accepted
+            })->whereHas('meetUpDetail', function ($q) {
+                $q->where('start_date', '<', now()->format('Y-m-d')); // Start date is before today
+            })->get();
+
+            Log::info('Found overdue accepted borrow events', ['count' => $borrowEvents->count()]);
+
+            if ($borrowEvents->isEmpty()) {
+                Log::info('No overdue accepted borrow events found');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no overdue accepted events found',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = [];
+            $today = now()->format('Y-m-d');
+            Log::info('Processing overdue accepted borrow events for date', ['date' => $today]);
+
+            foreach ($borrowEvents as $borrowEvent) {
+                try {
+                    Log::info('Processing borrow event for auto-cancellation due to overdue acceptance', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'borrower' => $borrowEvent->borrower->name,
+                        'lender' => $borrowEvent->lender->name,
+                        'book' => $borrowEvent->book->title,
+                        'start_date' => $borrowEvent->meetUpDetail->start_date ?? null,
+                        'current_status' => $borrowEvent->borrowStatus->borrow_status_id
+                    ]);
+
+                    DB::beginTransaction();
+
+                    // Update book availability back to available
+                    $book = Book::find($borrowEvent->book_id);
+                    if ($book) {
+                        $book->availability()->update(['availability_id' => 1]);
+                    }
+
+                    // Update borrow status to cancelled (status_id = 6)
+                    $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
+                        ->update(['borrow_status_id' => 6]);
+
+                    // Create cancellation reason - system cancelled due to overdue acceptance
+                    BorrowEventCancelReason::create([
+                        'borrow_event_id' => $borrowEvent->id,
+                        'cancelled_by' => $borrowEvent->lender_id, // System cancellation attributed to lender
+                        'reason' => 'Borrow event has been cancelled because both lender and borrower did not come.',
+                    ]);
+
+                    // Clean up related records
+                    BookAvailability::where('book_id', $borrowEvent->book_id)
+                        ->update(['availability_id' => 1]);
+
+                    // Delete meetup and return detail statuses if they exist
+                    if ($borrowEvent->meetUpDetail) {
+                        MeetUpDetailMeetUpStatus::where('meet_up_detail_id', $borrowEvent->meetUpDetail->id)->delete();
+                    }
+
+                    if ($borrowEvent->returnDetail) {
+                        ReturnDetailReturnStatus::where('return_detail_id', $borrowEvent->returnDetail->id)->delete();
+                    }
+
+                    // Delete meetup and return details if they exist
+                    MeetUpDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+                    ReturnDetail::where('borrow_event_id', $borrowEvent->id)->delete();
+
+                    DB::commit();
+
+                    $cancelledEvents[] = $borrowEvent;
+
+                    Log::info('Successfully auto-cancelled borrow event due to overdue acceptance', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'reason' => 'Start date passed without meetup confirmation'
+                    ]);
+                } catch (\Exception $e) {
+                    DB::rollback();
+                    Log::error('Failed to auto-cancel individual borrow event for overdue acceptance', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine()
+                    ]);
+                    // Continue with next event even if one fails
+                    continue;
+                }
+            }
+
+            if (empty($cancelledEvents)) {
+                Log::warning('No events were successfully cancelled despite finding overdue accepted events');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no events could be cancelled',
+                    'data' => [],
+                    'cancelled_count' => 0
+                ], 200);
+            }
+
+            $cancelledEvents = collect($cancelledEvents);
+            Log::info('Auto-cancellation for overdue accepted events completed successfully', [
+                'cancelled_count' => $cancelledEvents->count()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Check completed - overdue accepted borrow events cancelled successfully',
+                'data' => $cancelledEvents->map(function ($event) {
+                    return [
+                        'borrow_event_id' => $event->id,
+                        'borrower' => $event->borrower->name,
+                        'lender' => $event->lender->name,
+                        'book_title' => $event->book->title,
+                        'start_date' => $event->meetUpDetail->start_date ?? null,
+                    ];
+                }),
+                'cancelled_count' => $cancelledEvents->count()
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Failed to check for overdue accepted borrow events', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check for overdue accepted borrow events'
+            ], 500);
+        }
+    }
+
+    public function checkForOverdueReturnEvents()
+    {
+        try {
+            Log::info('Checking for overdue return events');
+
+            $borrowEvents = BorrowEvent::with([
+                'borrower',
+                'lender',
+                'book',
+                'borrowStatus',
+                'meetUpDetail',
+                'returnDetail',
+                'returnDetail.returnDetailReturnStatus',
+            ])->whereHas('borrowStatus', function ($q) {
+                $q->where('borrow_status_id', 7);
+            })->whereHas('returnDetail', function ($q) {
+                $q->where('return_date', '<', now()->format('Y-m-d'));
+            })->whereHas('returnDetail.returnDetailReturnStatus', function ($q) {
+                $q->where('return_status_id', 3);
+            })->get();
+
+            Log::info('Found overdue return events', ['count' => $borrowEvents->count()]);
+
+            if ($borrowEvents->isEmpty()) {
+                Log::info('No overdue return events found');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no overdue return events found',
+                    'data' => [],
+                    'updated_count' => 0
+                ], 200);
+            }
+
+            $updatedEvents = [];
+            $today = now()->format('Y-m-d');
+            Log::info('Processing overdue returns for date', ['date' => $today]);
+
+            foreach ($borrowEvents as $borrowEvent) {
+                try {
+                    Log::info('Processing borrow event for conversion to deposit status', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'borrower' => $borrowEvent->borrower->name,
+                        'lender' => $borrowEvent->lender->name,
+                        'book' => $borrowEvent->book->title,
+                        'return_date' => $borrowEvent->returnDetail->return_date ?? null,
+                        'days_overdue' => now()->diffInDays($borrowEvent->returnDetail->return_date),
+                    ]);
+
+                    DB::beginTransaction();
+                    // Update borrow status to deposit (status_id = 8)
+                    $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
+                        ->update(['borrow_status_id' => 8]);
+                    DB::commit();
+
+                    BorrowEventReport::create([
+                        'borrow_event_id' => $borrowEvent->id,
+                        'reported_by' => null, // Null = system
+                        'reason' => 'Borrow event has been converted to deposit status due to overdue return.',
+                        'status' => false,
+                    ]);
+
+                    // Refresh the model to get updated status
+                    $borrowEvent->refresh();
+                    $updatedEvents[] = $borrowEvent;
+
+                    Log::info('Successfully converted borrow event to deposit status', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'days_overdue' => now()->diffInDays($borrowEvent->returnDetail->return_date)
+                    ]);
+                } catch (\Exception $e) {
+                    DB::rollback();
+                    Log::error('Failed to convert individual borrow event to deposit status', [
+                        'borrow_event_id' => $borrowEvent->id,
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine()
+                    ]);
+                    // Continue with next event even if one fails
+                    continue;
+                }
+            }
+
+            if (empty($updatedEvents)) {
+                Log::warning('No events were successfully converted despite finding overdue returns');
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Check completed - no events could be converted to deposit',
+                    'data' => [],
+                    'updated_count' => 0
+                ], 200);
+            }
+
+            $updatedEvents = collect($updatedEvents);
+            Log::info('Conversion to deposit status for overdue returns completed successfully', [
+                'updated_count' => $updatedEvents->count()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Check completed - overdue return events converted to deposit successfully',
+                'data' => $updatedEvents->map(function ($event) {
+                    return [
+                        'borrow_event_id' => $event->id,
+                        'borrower' => $event->borrower->name,
+                        'lender' => $event->lender->name,
+                        'book_title' => $event->book->title,
+                        'return_date' => $event->returnDetail->return_date ?? null,
+                        'days_overdue' => now()->diffInDays($event->returnDetail->return_date),
+                        'new_status' => 'Deposit'
+                    ];
+                }),
+                'updated_count' => $updatedEvents->count()
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Failed to check for overdue return borrow events', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check for overdue return borrow events'
             ], 500);
         }
     }

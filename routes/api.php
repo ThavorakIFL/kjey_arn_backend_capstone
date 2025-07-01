@@ -52,6 +52,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/check-borrow-event', [BorrowEventController::class, 'checkForReturnBorrowEvent']);
     Route::post('/check-unconfirmed-meetups', [BorrowEventController::class, 'checkForUnconfirmedMeetups']);
     Route::post('/check-unaccepted-borrow-requests', [BorrowEventController::class, 'checkForUnacceptedRequests']);
+    Route::post('/check-overdue-accepted-borrow-events', [BorrowEventController::class, 'checkForOverdueAcceptedEvents']);
+    Route::post('/check-overdue-return-events', [BorrowEventController::class, 'checkForOverdueReturnEvents']);
     Route::get('/activities', [ActivityController::class, 'index']);
     Route::get('/locations', [AdminController::class, 'getLocations']);
 
