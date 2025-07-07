@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Models\BookPicture;
+use App\Models\BorrowEvent;
 use App\Models\Book;
 use App\Models\Genre;
 use App\Models\User;
@@ -485,7 +486,6 @@ class BookController extends Controller
             ], 404);
         }
 
-
         if ($book->user_id !== auth()->id()) {
             return response()->json([
                 'success' => false,
@@ -495,23 +495,80 @@ class BookController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // 1. Delete all borrow events and their related data
+            $borrowEvents = BorrowEvent::where('book_id', $book->id)->get();
+
+            foreach ($borrowEvents as $borrowEvent) {
+                // Delete meet up suggestions
+                if ($borrowEvent->meetUpDetail) {
+                    $borrowEvent->meetUpDetail->suggestions()->delete();
+
+                    // Delete meet up detail status relationships
+                    $borrowEvent->meetUpDetail->meetUpStatus()->detach();
+                    $borrowEvent->meetUpDetail->meetUpDetailMeetUpStatus()->delete();
+
+                    // Delete meet up detail
+                    $borrowEvent->meetUpDetail->delete();
+                }
+
+                // Delete return suggestions and details
+                if ($borrowEvent->returnDetail) {
+                    $borrowEvent->returnDetail->suggestions()->delete();
+
+                    // Delete return detail status relationships
+                    $borrowEvent->returnDetail->returnStatus()->detach();
+                    $borrowEvent->returnDetail->returnDetailReturnStatus()->delete();
+
+                    // Delete return detail
+                    $borrowEvent->returnDetail->delete();
+                }
+
+                // Delete borrow event related records
+                if ($borrowEvent->borrowStatus) {
+                    $borrowEvent->borrowStatus->delete();
+                }
+
+                if ($borrowEvent->borrowEventRejectReason) {
+                    $borrowEvent->borrowEventRejectReason->delete();
+                }
+
+                if ($borrowEvent->borrowEventCancelReason) {
+                    $borrowEvent->borrowEventCancelReason->delete();
+                }
+
+                if ($borrowEvent->borrowEventReport) {
+                    $borrowEvent->borrowEventReport->delete();
+                }
+
+                // Finally delete the borrow event
+                $borrowEvent->delete();
+            }
+
+            // 2. Delete book pictures and their files
             foreach ($book->pictures as $picture) {
                 if (Storage::disk('public')->exists($picture->picture)) {
                     Storage::disk('public')->delete($picture->picture);
                 }
                 $picture->delete();
             }
+
+            // 3. Detach genres (many-to-many relationship)
             $book->genres()->detach();
+
+            // 4. Delete book availability
             if ($book->availability) {
                 $book->availability->delete();
             }
+
+            // 5. Finally delete the book
             $book->delete();
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Book deleted successfully'
+                'message' => 'Book and all related data deleted successfully'
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
