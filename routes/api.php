@@ -31,6 +31,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/test-token', [AuthController::class, 'testToken']);
     Route::put('/user-profile/{subId}', [UserController::class, 'editBio']);
     Route::post('/list-book', [BookController::class, 'listBook']);
+    Route::get('/book/genres', [BookController::class, 'getGenres']);
     Route::post('/book/edit/{id}', [BookController::class, 'editBook']);
     Route::delete('/book/delete/{id}', [BookController::class, 'deleteBook']);
     Route::get('/borrow-requests', [BorrowEventController::class, 'viewBorrowRequests']);

@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Models\BookPicture;
 use App\Models\Book;
+use App\Models\Genre;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
@@ -237,6 +238,17 @@ class BookController extends Controller
             ], 500);
         }
     }
+
+    public function getGenres()
+    {
+        $genres = Genre::orderBy('genre', 'asc')->get(['id', 'genre']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Genres retrieved successfully',
+            'data' => $genres
+        ]);
+    }
+
     /**
      * Search for books based on various criteria.
      *
