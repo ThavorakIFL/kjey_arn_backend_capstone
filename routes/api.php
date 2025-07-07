@@ -82,7 +82,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/books/total', [AdminController::class, 'getTotalBooks']);
     Route::get('/admin/books/{id}', [AdminController::class, 'getBookById']);
     Route::patch('/admin/books/{id}/status', [AdminController::class, 'updateBookStatus']);
-    Route::get('/admin/genres', [AdminController::class, 'getGenres']);
     Route::get('/admin/genres/popular-genres', [AdminController::class, 'getPopularGenres']);
     Route::get('/admin/borrow-activities', [AdminController::class, 'indexBorrowActivities']);
     Route::get('/admin/borrow-activities/{id}', [AdminController::class, 'getBorrowActivityById']);
