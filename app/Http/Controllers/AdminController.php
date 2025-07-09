@@ -333,39 +333,46 @@ class AdminController extends Controller
                 'status' => 'required|integer|in:0,1'
             ]);
 
-            $user = Book::findOrFail($id);
-            $user->status = $request->status;
-            $user->save();
+            $book = Book::findOrFail($id);
+            $book->status = $request->status;
 
+            // Update availability based on status
+            if ($request->status == 1) {
+                $book->availability()->update(['availability_id' => 1]);
+            } else {
+                $book->availability()->update(['availability_id' => 2]);
+            }
+
+            $book->save();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Book status updated successfully',
-                'data' => $user
+                'data' => $book
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation error when updating user status', [
-                'user_id' => $id,
+            Log::error('Validation error when updating book status', [
+                'book_id' => $id,
                 'errors' => $e->errors(),
             ]);
             throw $e;
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            Log::error('User not found when updating status', [
-                'user_id' => $id
+            Log::error('Book not found when updating status', [
+                'book_id' => $id
             ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Book not found'
             ], 404);
         } catch (\Exception $e) {
-            Log::error('Error updating user status', [
+            Log::error('Error updating book status', [
                 'book_id' => $id,
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
             return response()->json([
                 'success' => false,
-                'message' => 'An error occurred while updating user status'
+                'message' => 'An error occurred while updating book status'
             ], 500);
         }
     }

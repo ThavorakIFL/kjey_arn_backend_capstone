@@ -286,7 +286,7 @@ class BookController extends Controller
 
     private function performSearch(Request $request)
     {
-        $query = Book::with(['genres', 'pictures', 'availability', 'user']);
+        $query = Book::with(['genres', 'pictures', 'availability', 'user'])->where('status', 1);
         $hasFilters = false;
 
         if ($request->filled('search')) {
@@ -346,12 +346,6 @@ class BookController extends Controller
         // Validate pagination parameters
         $perPage = max(1, min(100, (int)$perPage));
         $page = max(1, (int)$page);
-
-        Log::info('Search pagination parameters', [
-            'page' => $page,
-            'per_page' => $perPage,
-            'has_filters' => $hasFilters
-        ]);
 
         // Get paginated results
         $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
