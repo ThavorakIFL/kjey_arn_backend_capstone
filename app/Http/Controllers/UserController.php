@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -174,6 +175,23 @@ class UserController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to update profile picture: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function checkUserStatus(Request $request, $userId): JsonResponse
+    {
+        try {
+            $user = User::find($userId);
+            if (!$user) {
+                return response()->json(['error' => 'User not found'], 404);
+            }
+            return response()->json([
+                'status' => $user->status,
+                'user_id' => $user->id,
+                'checked_at' => now()
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'An error occurred while checking user status: ' . $e->getMessage()], 500);
         }
     }
 }

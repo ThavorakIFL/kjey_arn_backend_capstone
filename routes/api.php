@@ -29,6 +29,7 @@ Route::get('/user-profile/{subId}', [UserController::class, 'getUserProfile']);
 Route::middleware('auth:sanctum')->group(function () {
     //Frontend APIs
     Route::get('/test-token', [AuthController::class, 'testToken']);
+    Route::get('/check-user-status/{userId}', [UserController::class, 'checkUserStatus']);
     Route::put('/user-profile/{subId}', [UserController::class, 'editBio']);
     Route::post('/list-book', [BookController::class, 'listBook']);
     Route::get('/book/genres', [BookController::class, 'getGenres']);
