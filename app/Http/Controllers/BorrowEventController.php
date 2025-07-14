@@ -208,11 +208,6 @@ class BorrowEventController extends Controller
                 'message' => 'Borrow event cancelled successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to cancel borrow event', [
-                'borrow_event_id' => $id,
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to cancel borrow event'
@@ -245,11 +240,6 @@ class BorrowEventController extends Controller
                 'message' => 'Book received successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to confirm received book', [
-                'borrow_event_id' => $id,
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to confirm received book'
@@ -259,27 +249,12 @@ class BorrowEventController extends Controller
 
     public function reportBorrowEvent(Request $request, $id)
     {
-        // Add comprehensive debugging at the start
-        Log::info('reportBorrowEvent called', [
-            'route_parameter_id' => $id,
-            'id_type' => gettype($id),
-            'request_body' => $request->all(),
-            'request_method' => $request->method(),
-            'request_url' => $request->fullUrl(),
-            'request_headers' => $request->headers->all(),
-        ]);
-
         // Check for parameter swapping issue
         if (is_string($id) && (
             str_contains($id, "didn't show up") ||
             str_contains($id, "Lender") ||
             str_contains($id, "Borrower")
         )) {
-            Log::error('Parameter swap detected in reportBorrowEvent', [
-                'received_id' => $id,
-                'request_body' => $request->all(),
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Parameter error: ID parameter appears to contain reason text',
@@ -295,21 +270,12 @@ class BorrowEventController extends Controller
             $userId = auth()->id();
 
             if (!$userId) {
-                Log::warning('Unauthorized attempt to report borrow event', [
-                    'borrow_event_id' => $id,
-                    'ip' => $request->ip()
-                ]);
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized'
                 ], 401);
             }
 
-            Log::info('Attempting to report borrow event', [
-                'borrow_event_id' => $id,
-                'user_id' => $userId,
-                'reason' => $request->input('reason')
-            ]);
 
             $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)->update([
                 'borrow_status_id' => 8
@@ -327,14 +293,6 @@ class BorrowEventController extends Controller
                 'message' => 'Borrow event reported successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to report borrow event', [
-                'borrow_event_id' => $id,
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to report borrow event'
@@ -373,10 +331,6 @@ class BorrowEventController extends Controller
                 'data' => $borrowEvents
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to retrieve user borrow requests', [
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve borrow requests'
@@ -536,10 +490,6 @@ class BorrowEventController extends Controller
                 ]);
             }
         } catch (\Exception $e) {
-            Log::error('Failed to retrieve user borrow events', [
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve borrow events'
@@ -580,11 +530,6 @@ class BorrowEventController extends Controller
                 'data' => $borrowEvent
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to retrieve borrow event', [
-                'id' => $id,
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve borrow event'
@@ -631,11 +576,6 @@ class BorrowEventController extends Controller
                 'message' => 'Borrow request rejected successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to reject borrow request', [
-                'id' => $id,
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to reject borrow request'
@@ -643,69 +583,9 @@ class BorrowEventController extends Controller
         }
     }
 
-    // public function getAllHistoryBorrowEvent()
-    // {
-    //     try {
-    //         $userId = auth()->id();
-    //         Log::info('Fetching history borrow events', ['user_id' => $userId]);
-
-    //         $borrowEvents = BorrowEvent::with([
-    //             'borrower',
-    //             'lender',
-    //             'book',
-    //             'book.pictures',
-    //             'borrowStatus',
-    //             'meetUpDetail',
-    //             'returnDetail',
-    //         ])->where(function ($q) use ($userId) {
-    //             $q->where('borrower_id', $userId)
-    //                 ->orWhere('lender_id', $userId);
-    //         })
-    //             ->whereHas('borrowStatus', function ($q) {
-    //                 $q->whereIn('borrow_status_id', [3, 5, 6]);
-    //             })
-    //             ->orderBy('created_at', 'desc')->get();
-
-    //         Log::info('History borrow events retrieved', [
-    //             'user_id' => $userId,
-    //             'count' => $borrowEvents->count()
-    //         ]);
-
-    //         // Empty history is a valid state, not an error
-    //         if ($borrowEvents->isEmpty()) {
-    //             Log::info('No history borrow events found - returning empty result', ['user_id' => $userId]);
-    //             return response()->json([
-    //                 'success' => true,
-    //                 'data' => [],
-    //                 'message' => 'No history borrow events found'
-    //             ], 200);
-    //         }
-
-    //         return response()->json([
-    //             'success' => true,
-    //             'data' => $borrowEvents
-    //         ], 200);
-    //     } catch (\Exception $e) {
-    //         Log::error('Failed to retrieve history borrow events', [
-    //             'user_id' => auth()->id(),
-    //             'error' => $e->getMessage(),
-    //             'file' => $e->getFile(),
-    //             'line' => $e->getLine(),
-    //             'trace' => $e->getTraceAsString()
-    //         ]);
-
-    //         return response()->json([
-    //             'success' => false,
-    //             'message' => 'Failed to retrieve history borrow events',
-    //             'data' => []
-    //         ], 500);
-    //     }
-    // }
-
     public function getAllHistoryBorrowEvent(Request $request)
     {
         try {
-            Log::info('Getting All History');
             $userId = auth()->id();
             // Validate request parameters
             $validated = $request->validate([
@@ -717,14 +597,6 @@ class BorrowEventController extends Controller
             $page = $validated['page'] ?? 1;
             $perPage = $validated['per_page'] ?? 12;
             $statusFilter = $validated['status'] ?? null;
-
-            Log::info('Fetching history borrow events', [
-                'user_id' => $userId,
-                'page' => $page,
-                'per_page' => $perPage,
-                'status_filter' => $statusFilter
-            ]);
-
             // Build the query
             $query = BorrowEvent::with([
                 'borrower',
@@ -756,15 +628,6 @@ class BorrowEventController extends Controller
             $borrowEvents = $query->orderBy('created_at', 'desc')
                 ->paginate($perPage, ['*'], 'page', $page);
 
-            Log::info('History borrow events retrieved', [
-                'user_id' => $userId,
-                'total' => $borrowEvents->total(),
-                'current_page' => $borrowEvents->currentPage(),
-                'last_page' => $borrowEvents->lastPage(),
-                'per_page' => $borrowEvents->perPage(),
-                'status_filter' => $statusFilter
-            ]);
-
             // Format pagination data
             $paginationData = [
                 'current_page' => $borrowEvents->currentPage(),
@@ -778,10 +641,6 @@ class BorrowEventController extends Controller
 
             // Empty history is a valid state, not an error
             if ($borrowEvents->isEmpty()) {
-                Log::info('No history borrow events found - returning empty result', [
-                    'user_id' => $userId,
-                    'status_filter' => $statusFilter
-                ]);
                 return response()->json([
                     'success' => true,
                     'data' => [],
@@ -796,12 +655,6 @@ class BorrowEventController extends Controller
                 'pagination' => $paginationData
             ], 200);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::warning('Validation failed for history borrow events request', [
-                'user_id' => auth()->id(),
-                'errors' => $e->errors(),
-                'request_data' => $request->all()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid request parameters',
@@ -809,14 +662,6 @@ class BorrowEventController extends Controller
                 'data' => []
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Failed to retrieve history borrow events', [
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve history borrow events',
@@ -829,10 +674,7 @@ class BorrowEventController extends Controller
     {
         try {
             $userId = auth()->id();
-            Log::info('Checking for return borrow events', ['user_id' => $userId]);
-
             if (!$userId) {
-                Log::warning('Unauthorized access attempt');
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized'
@@ -854,10 +696,8 @@ class BorrowEventController extends Controller
                 $q->where('borrow_status_id', 4); // Status ID 4 is "In Progress"
             })->get();
 
-            Log::info('Found borrow events', ['count' => $borrowEvents->count()]);
 
             if ($borrowEvents->isEmpty()) {
-                Log::info('No in-progress borrow events found', ['user_id' => $userId]);
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no in-progress borrow events found',
@@ -867,26 +707,17 @@ class BorrowEventController extends Controller
             }
 
             $today = now()->format('Y-m-d');
-            Log::info('Checking for return dates', ['today' => $today]);
 
             $returnDueEvents = [];
             foreach ($borrowEvents as $borrowEvent) {
-                Log::info('Checking borrow event', [
-                    'id' => $borrowEvent->id,
-                    'return_date' => $borrowEvent->returnDetail ? $borrowEvent->returnDetail->return_date : null
-                ]);
-
                 if ($borrowEvent->returnDetail && $borrowEvent->returnDetail->return_date === $today) {
-                    Log::info('Found event due for return today', ['borrow_event_id' => $borrowEvent->id]);
                     $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
                         ->update(['borrow_status_id' => 7]);
                     $borrowEvent->refresh();
                     $returnDueEvents[] = $borrowEvent;
                 }
             }
-
             if (empty($returnDueEvents)) {
-                Log::info('No borrow events due for return today', ['user_id' => $userId]);
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no events due for return today',
@@ -896,8 +727,6 @@ class BorrowEventController extends Controller
             }
 
             $borrowEvents = collect($returnDueEvents);
-            Log::info('Returning due events', ['count' => $borrowEvents->count()]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Check completed - events updated successfully',
@@ -905,13 +734,6 @@ class BorrowEventController extends Controller
                 'updated_count' => $borrowEvents->count()
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to check for return borrow events', [
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for return borrow events'
@@ -922,7 +744,6 @@ class BorrowEventController extends Controller
     public function checkForUnconfirmedMeetups()
     {
         try {
-            Log::info('Checking for unconfirmed meetup details');
             $borrowEvents = BorrowEvent::with([
                 'borrower',
                 'lender',
@@ -939,10 +760,7 @@ class BorrowEventController extends Controller
                 $q->where('meet_up_status_id', 1); // Status 1 = Pending (not confirmed by borrower)
             })->get();
 
-            Log::info('Found unconfirmed meetup events', ['count' => $borrowEvents->count()]);
-
             if ($borrowEvents->isEmpty()) {
-                Log::info('No unconfirmed meetup events found for today');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no unconfirmed meetups found for today',
@@ -953,19 +771,8 @@ class BorrowEventController extends Controller
 
             $cancelledEvents = [];
             $today = now()->format('Y-m-d');
-            Log::info('Processing unconfirmed meetups for date', ['date' => $today]);
-
             foreach ($borrowEvents as $borrowEvent) {
                 try {
-                    Log::info('Processing borrow event for auto-cancellation', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'borrower' => $borrowEvent->borrower->name,
-                        'lender' => $borrowEvent->lender->name,
-                        'book' => $borrowEvent->book->title,
-                        'start_date' => $borrowEvent->meetUpDetail->start_date,
-                        'meetup_status' => $borrowEvent->meetUpDetail->meetUpDetailMeetUpStatus->meet_up_status_id
-                    ]);
-
                     DB::beginTransaction();
 
                     // Update book availability back to available
@@ -1005,26 +812,14 @@ class BorrowEventController extends Controller
                     DB::commit();
 
                     $cancelledEvents[] = $borrowEvent;
-
-                    Log::info('Successfully auto-cancelled borrow event', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'reason' => 'Unconfirmed meetup on start date'
-                    ]);
                 } catch (\Exception $e) {
                     DB::rollback();
-                    Log::error('Failed to auto-cancel individual borrow event', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'error' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine()
-                    ]);
                     // Continue with next event even if one fails
                     continue;
                 }
             }
 
             if (empty($cancelledEvents)) {
-                Log::warning('No events were successfully cancelled despite finding unconfirmed meetups');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no events could be cancelled',
@@ -1034,10 +829,6 @@ class BorrowEventController extends Controller
             }
 
             $cancelledEvents = collect($cancelledEvents);
-            Log::info('Auto-cancellation completed successfully', [
-                'cancelled_count' => $cancelledEvents->count()
-            ]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Check completed - unconfirmed meetups cancelled successfully',
@@ -1053,13 +844,6 @@ class BorrowEventController extends Controller
                 'cancelled_count' => $cancelledEvents->count()
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to check for unconfirmed meetups', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for unconfirmed meetups'
@@ -1070,7 +854,6 @@ class BorrowEventController extends Controller
     public function checkForUnacceptedRequests()
     {
         try {
-            Log::info('Checking for unaccepted borrow requests');
             $borrowEvents = BorrowEvent::with([
                 'borrower',
                 'lender',
@@ -1084,10 +867,7 @@ class BorrowEventController extends Controller
                 $q->where('start_date', '<=', now()->format('Y-m-d')); // Today is the start date
             })->get();
 
-            Log::info('Found unaccepted borrow request events', ['count' => $borrowEvents->count()]);
-
             if ($borrowEvents->isEmpty()) {
-                Log::info('No unaccepted borrow request events found for today');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no unaccepted borrow requests found for today',
@@ -1098,19 +878,9 @@ class BorrowEventController extends Controller
 
             $cancelledEvents = [];
             $today = now()->format('Y-m-d');
-            Log::info('Processing unaccepted borrow requests for date', ['date' => $today]);
 
             foreach ($borrowEvents as $borrowEvent) {
                 try {
-                    Log::info('Processing borrow event for auto-cancellation due to unaccepted request', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'borrower' => $borrowEvent->borrower->name,
-                        'lender' => $borrowEvent->lender->name,
-                        'book' => $borrowEvent->book->title,
-                        'start_date' => $borrowEvent->meetUpDetail->start_date ?? null,
-                        'current_status' => $borrowEvent->borrowStatus->borrow_status_id
-                    ]);
-
                     DB::beginTransaction();
 
                     // Update book availability back to available
@@ -1150,26 +920,13 @@ class BorrowEventController extends Controller
                     DB::commit();
 
                     $cancelledEvents[] = $borrowEvent;
-
-                    Log::info('Successfully auto-cancelled borrow event due to unaccepted request', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'reason' => 'Lender did not accept request by start date'
-                    ]);
                 } catch (\Exception $e) {
                     DB::rollback();
-                    Log::error('Failed to auto-cancel individual borrow event for unaccepted request', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'error' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine()
-                    ]);
-                    // Continue with next event even if one fails
                     continue;
                 }
             }
 
             if (empty($cancelledEvents)) {
-                Log::warning('No events were successfully cancelled despite finding unaccepted requests');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no events could be cancelled',
@@ -1177,12 +934,7 @@ class BorrowEventController extends Controller
                     'cancelled_count' => 0
                 ], 200);
             }
-
             $cancelledEvents = collect($cancelledEvents);
-            Log::info('Auto-cancellation for unaccepted requests completed successfully', [
-                'cancelled_count' => $cancelledEvents->count()
-            ]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Check completed - unaccepted borrow requests cancelled successfully',
@@ -1198,13 +950,6 @@ class BorrowEventController extends Controller
                 'cancelled_count' => $cancelledEvents->count()
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to check for unaccepted borrow requests', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for unaccepted borrow requests'
@@ -1215,7 +960,6 @@ class BorrowEventController extends Controller
     public function checkForOverdueAcceptedEvents()
     {
         try {
-            Log::info('Checking for overdue accepted borrow events');
             $borrowEvents = BorrowEvent::with([
                 'borrower',
                 'lender',
@@ -1228,11 +972,7 @@ class BorrowEventController extends Controller
             })->whereHas('meetUpDetail', function ($q) {
                 $q->where('start_date', '<', now()->format('Y-m-d')); // Start date is before today
             })->get();
-
-            Log::info('Found overdue accepted borrow events', ['count' => $borrowEvents->count()]);
-
             if ($borrowEvents->isEmpty()) {
-                Log::info('No overdue accepted borrow events found');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no overdue accepted events found',
@@ -1243,18 +983,8 @@ class BorrowEventController extends Controller
 
             $cancelledEvents = [];
             $today = now()->format('Y-m-d');
-            Log::info('Processing overdue accepted borrow events for date', ['date' => $today]);
-
             foreach ($borrowEvents as $borrowEvent) {
                 try {
-                    Log::info('Processing borrow event for auto-cancellation due to overdue acceptance', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'borrower' => $borrowEvent->borrower->name,
-                        'lender' => $borrowEvent->lender->name,
-                        'book' => $borrowEvent->book->title,
-                        'start_date' => $borrowEvent->meetUpDetail->start_date ?? null,
-                        'current_status' => $borrowEvent->borrowStatus->borrow_status_id
-                    ]);
 
                     DB::beginTransaction();
 
@@ -1295,26 +1025,13 @@ class BorrowEventController extends Controller
                     DB::commit();
 
                     $cancelledEvents[] = $borrowEvent;
-
-                    Log::info('Successfully auto-cancelled borrow event due to overdue acceptance', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'reason' => 'Start date passed without meetup confirmation'
-                    ]);
                 } catch (\Exception $e) {
                     DB::rollback();
-                    Log::error('Failed to auto-cancel individual borrow event for overdue acceptance', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'error' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine()
-                    ]);
-                    // Continue with next event even if one fails
                     continue;
                 }
             }
 
             if (empty($cancelledEvents)) {
-                Log::warning('No events were successfully cancelled despite finding overdue accepted events');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no events could be cancelled',
@@ -1324,10 +1041,6 @@ class BorrowEventController extends Controller
             }
 
             $cancelledEvents = collect($cancelledEvents);
-            Log::info('Auto-cancellation for overdue accepted events completed successfully', [
-                'cancelled_count' => $cancelledEvents->count()
-            ]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Check completed - overdue accepted borrow events cancelled successfully',
@@ -1343,13 +1056,6 @@ class BorrowEventController extends Controller
                 'cancelled_count' => $cancelledEvents->count()
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to check for overdue accepted borrow events', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to check for overdue accepted borrow events'
@@ -1360,8 +1066,6 @@ class BorrowEventController extends Controller
     public function checkForOverdueReturnEvents()
     {
         try {
-            Log::info('Checking for overdue return events');
-
             $borrowEvents = BorrowEvent::with([
                 'borrower',
                 'lender',
@@ -1377,11 +1081,7 @@ class BorrowEventController extends Controller
             })->whereHas('returnDetail.returnDetailReturnStatus', function ($q) {
                 $q->where('return_status_id', 3);
             })->get();
-
-            Log::info('Found overdue return events', ['count' => $borrowEvents->count()]);
-
             if ($borrowEvents->isEmpty()) {
-                Log::info('No overdue return events found');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no overdue return events found',
@@ -1392,19 +1092,8 @@ class BorrowEventController extends Controller
 
             $updatedEvents = [];
             $today = now()->format('Y-m-d');
-            Log::info('Processing overdue returns for date', ['date' => $today]);
-
             foreach ($borrowEvents as $borrowEvent) {
                 try {
-                    Log::info('Processing borrow event for conversion to deposit status', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'borrower' => $borrowEvent->borrower->name,
-                        'lender' => $borrowEvent->lender->name,
-                        'book' => $borrowEvent->book->title,
-                        'return_date' => $borrowEvent->returnDetail->return_date ?? null,
-                        'days_overdue' => now()->diffInDays($borrowEvent->returnDetail->return_date),
-                    ]);
-
                     DB::beginTransaction();
                     // Update borrow status to deposit (status_id = 8)
                     $borrowEvent->borrowStatus()->where('borrow_event_id', $borrowEvent->id)
@@ -1421,26 +1110,14 @@ class BorrowEventController extends Controller
                     // Refresh the model to get updated status
                     $borrowEvent->refresh();
                     $updatedEvents[] = $borrowEvent;
-
-                    Log::info('Successfully converted borrow event to deposit status', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'days_overdue' => now()->diffInDays($borrowEvent->returnDetail->return_date)
-                    ]);
                 } catch (\Exception $e) {
                     DB::rollback();
-                    Log::error('Failed to convert individual borrow event to deposit status', [
-                        'borrow_event_id' => $borrowEvent->id,
-                        'error' => $e->getMessage(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine()
-                    ]);
                     // Continue with next event even if one fails
                     continue;
                 }
             }
 
             if (empty($updatedEvents)) {
-                Log::warning('No events were successfully converted despite finding overdue returns');
                 return response()->json([
                     'success' => true,
                     'message' => 'Check completed - no events could be converted to deposit',
@@ -1450,10 +1127,6 @@ class BorrowEventController extends Controller
             }
 
             $updatedEvents = collect($updatedEvents);
-            Log::info('Conversion to deposit status for overdue returns completed successfully', [
-                'updated_count' => $updatedEvents->count()
-            ]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Check completed - overdue return events converted to deposit successfully',
@@ -1471,12 +1144,6 @@ class BorrowEventController extends Controller
                 'updated_count' => $updatedEvents->count()
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Failed to check for overdue return borrow events', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
 
             return response()->json([
                 'success' => false,

@@ -41,4 +41,9 @@ class Book extends Model
     {
         return $this->hasOne(BookAvailability::class);
     }
+
+    public function borrowEvents(): HasMany
+    {
+        return $this->hasMany(BorrowEvent::class);
+    }
 }

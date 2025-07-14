@@ -28,6 +28,7 @@ Route::get('/user-profile/{subId}', [UserController::class, 'getUserProfile']);
 
 Route::middleware('auth:sanctum')->group(function () {
     //Frontend APIs
+
     Route::get('/test-token', [AuthController::class, 'testToken']);
     Route::get('/check-user-status/{userId}', [UserController::class, 'checkUserStatus']);
     Route::put('/user-profile/{subId}', [UserController::class, 'editBio']);
@@ -102,9 +103,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
 
-
+Route::get('/books/suggestions', [BookController::class, 'getBookSuggestions']);
+Route::get('/users/suggestions', [UserController::class, 'getUserSuggestions']);
 Route::get('/all-books', [BookController::class, 'viewAllBooks']);
 Route::get('/get-books/{bookId}', [BookController::class, 'viewBook']);
+
 Route::get('/newly-added-books', [BookController::class, 'newlyAddedBooks']);
 Route::post('/admin/login', [AdminController::class, 'login']);
 Route::get('/user-profile/{subId}/get-books', [BookController::class, 'getUserBookshelf']);

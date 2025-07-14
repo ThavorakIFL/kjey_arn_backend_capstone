@@ -29,7 +29,6 @@ class UserController extends Controller
                 });
             }
 
-            // Pagination logic
             $perPage = $request->get('per_page', 14); // Default 14 users per page
             $page = $request->get('page', 1);
 
@@ -39,14 +38,6 @@ class UserController extends Controller
 
             // Get paginated results
             $paginatedUsers = $userQuery->paginate($perPage, ['*'], 'page', $page);
-
-            Log::info('User search completed', [
-                'query' => $query ?: 'all users',
-                'results' => $paginatedUsers->total(),
-                'page' => $page,
-                'per_page' => $perPage
-            ]);
-
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -66,11 +57,6 @@ class UserController extends Controller
                 'message' => 'Users retrieved successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('User search exception: ' . $e->getMessage(), [
-                'query' => $request->input('query'),
-                'exception' => $e
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred during search',
@@ -78,6 +64,49 @@ class UserController extends Controller
                     'users' => [],
                     'pagination' => null
                 ]
+            ], 500);
+        }
+    }
+
+    public function getUserSuggestions(Request $request)
+    {
+        try {
+            $query = $request->input('query');
+
+            if (!$query || trim($query) === '') {
+                return response()->json([
+                    'success' => true,
+                    'data' => []
+                ]);
+            }
+
+            // Get users that match the search
+            $suggestions = User::select('name', 'email', 'picture', 'sub', 'id')
+                ->where(function ($q) use ($query) {
+                    $q->where('name', 'LIKE', '%' . $query . '%')
+                        ->orWhere('email', 'LIKE', '%' . $query . '%');
+                })
+                ->limit(10) // Limit to 10 suggestions
+                ->get()
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'picture' => $user->picture,
+                        'sub' => $user->sub,
+                        'display' => $user->name . ' (' . $user->email . ')'
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $suggestions
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'data' => []
             ], 500);
         }
     }

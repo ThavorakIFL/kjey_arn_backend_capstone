@@ -19,11 +19,9 @@ class ReturnDetailController extends Controller
     {
         $borrowEvent = BorrowEvent::find($borrowEventId);
         if (!$borrowEvent) {
-            Log::error('Borrow event not found for ID: ' . $borrowEventId);
             return response()->json(['message' => 'Borrow event not found.'], 404);
         }
         if ($borrowEvent->borrowStatus->borrow_status_id !== 2) {
-            Log::warning('Cannot set return details - incorrect status: ' . $borrowEvent->borrowStatus->borrow_status_id);
             return response()->json([
                 'message' => 'Cannot set return details because the status is not approved.'
             ], 500);
@@ -36,17 +34,14 @@ class ReturnDetailController extends Controller
 
                 $returnDetail = ReturnDetail::where('borrow_event_id', $borrowEventId)->first();
                 if (!$returnDetail) {
-                    Log::error('Return detail not found for borrowEventId: ' . $borrowEventId);
                     return response()->json(['message' => 'Return detail not found.'], 404);
                 }
 
                 if (auth()->id() !== $borrowEvent->borrower_id) {
-                    Log::warning('Unauthorized attempt to set return details. User: ' . auth()->id() . ', Borrower: ' . $borrowEvent->borrower_id);
                     return response()->json(['message' => 'Unauthorized. Only the Borrower can set the return time and location.'], 403);
                 } else {
                     $pivot = $returnDetail->returnDetailReturnStatus()->first();
                     if ($pivot->return_status_id !== 1) {
-                        Log::error('Failed to update return detail - incorrect status: ' . $pivot->return_status_id);
                         return response()->json([
                             'message' => 'Failed to update the return detail status.'
                         ], 500);
@@ -54,11 +49,9 @@ class ReturnDetailController extends Controller
                         $returnDetail->return_time = $validated['return_time'];
                         $returnDetail->return_location = $validated['return_location'];
                         $returnDetail->save();
-                        Log::info('Updating borrow status to 4 for borrowEventId: ' . $borrowEvent->id);
                         $borrowEvent->borrowStatus->where('borrow_event_id', $borrowEvent->id)->update(['borrow_status_id' => 4]);
                         $pivot->return_status_id = 3;
                         $pivot->save();
-                        Log::info('Return detail successfully updated for borrowEventId: ' . $borrowEventId);
                         return response()->json([
                             'message' => 'Return detail updated successfully.',
                             'return_detail' => $returnDetail,
@@ -66,7 +59,6 @@ class ReturnDetailController extends Controller
                     }
                 }
             } catch (\Exception $e) {
-                Log::error('Exception in setReturnDetail: ' . $e->getMessage());
                 return response()->json([
                     'message' => 'Failed to update return details.',
                     'error' => $e->getMessage()

@@ -55,18 +55,8 @@ class BookController extends Controller
             'pictures.*.image' => 'File must be an image',
             'pictures.*.mimes' => 'Image must be JPEG, PNG, JPG, or GIF format',
         ]);
-
-
         if ($validator->fails()) {
             $errors = $validator->errors();
-
-            // Log detailed validation errors for debugging
-            Log::error('Book listing validation failed', [
-                'user_id' => auth()->id(),
-                'errors' => $errors->toArray(),
-                'request_data' => $request->except(['pictures']) // Don't log file data
-            ]);
-
             // Transform validation errors for better frontend handling
             $transformedErrors = [];
             foreach ($errors->toArray() as $field => $messages) {
@@ -138,13 +128,6 @@ class BookController extends Controller
             if (!$availability) {
                 throw new \Exception('Failed to create book availability record');
             }
-
-            Log::info('Created availability record', [
-                'availability_id' => $availability->id,
-                'book_id' => $availability->book_id,
-                'availability_value' => $availability->availability_id
-            ]);
-
             // Attach genres
             try {
                 $book->genres()->attach($request->genres);
@@ -198,12 +181,6 @@ class BookController extends Controller
             // Load relationships for response
             $book->load(['pictures', 'genres', 'availability']);
 
-            Log::info('Book created successfully', [
-                'book_id' => $book->id,
-                'user_id' => auth()->id(),
-                'title' => $book->title
-            ]);
-
             return response()->json([
                 'success' => true,
                 'message' => 'Book listed successfully!',
@@ -214,14 +191,6 @@ class BookController extends Controller
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-
-            Log::error('Book creation failed', [
-                'user_id' => auth()->id(),
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'request_data' => $request->except(['pictures'])
-            ]);
-
             // Return user-friendly error message
             $errorMessage = $e->getMessage();
 
@@ -270,12 +239,6 @@ class BookController extends Controller
 
             return response()->json($cachedResult);
         } catch (\Exception $e) {
-            Log::error('Error in searchBooks method', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'request_data' => $request->all()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while searching for books',
@@ -297,19 +260,16 @@ class BookController extends Controller
                     ->orWhere('description', 'like', '%' . $searchTerm . '%');
             });
             $hasFilters = true;
-            Log::info('Search filter applied', ['term' => $searchTerm]);
         }
 
         if ($request->filled('title')) {
             $query->where('title', 'like', '%' . $request->title . '%');
             $hasFilters = true;
-            Log::info('Title filter applied', ['title' => $request->title]);
         }
 
         if ($request->filled('author')) {
             $query->where('author', 'like', '%' . $request->author . '%');
             $hasFilters = true;
-            Log::info('Author filter applied', ['author' => $request->author]);
         }
 
         if ($request->filled('genre_ids')) {
@@ -321,7 +281,6 @@ class BookController extends Controller
                 $q->whereIn('genres.id', $genreIds);
             });
             $hasFilters = true;
-            Log::info('Genre filter applied', ['genre_ids' => $genreIds]);
         }
 
         if ($request->filled('sub')) {
@@ -329,9 +288,7 @@ class BookController extends Controller
             if ($user) {
                 $query->where('user_id', $user->id);
                 $hasFilters = true;
-                Log::info('User filter applied', ['sub' => $request->sub, 'user_id' => $user->id]);
             } else {
-                Log::warning('User not found for sub', ['sub' => $request->sub]);
                 return [
                     'success' => false,
                     'message' => 'User not found for the provided sub',
@@ -349,13 +306,6 @@ class BookController extends Controller
 
         // Get paginated results
         $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
-
-        Log::info('Search completed successfully', [
-            'total_results' => $paginatedBooks->total(),
-            'current_page' => $paginatedBooks->currentPage(),
-            'result_count' => count($paginatedBooks->items())
-        ]);
-
         return [
             'success' => true,
             'data' => [
@@ -374,6 +324,63 @@ class BookController extends Controller
             ],
             'message' => 'Books retrieved successfully'
         ];
+    }
+
+    public function getBookSuggestions(Request $request)
+    {
+        try {
+            $query = $request->input('query');
+            $userSub = $request->input('sub'); // Get user sub if provided
+
+            if (!$query || trim($query) === '') {
+                return response()->json([
+                    'success' => true,
+                    'data' => []
+                ]);
+            }
+
+            // Start building the query
+            $bookQuery = Book::select('title', 'author', 'id')
+                ->where('status', 1)
+                ->where('title', 'LIKE', '%' . $query . '%');
+
+            // If userSub is provided, filter by user's books only
+            if ($userSub) {
+                $user = User::where('sub', $userSub)->first();
+                if ($user) {
+                    $bookQuery->where('user_id', $user->id);
+                } else {
+                    // If user not found, return empty results
+                    return response()->json([
+                        'success' => true,
+                        'data' => []
+                    ]);
+                }
+            }
+
+            $suggestions = $bookQuery
+                ->distinct()
+                ->limit(10)
+                ->get()
+                ->map(function ($book) {
+                    return [
+                        'id' => $book->id,
+                        'title' => $book->title,
+                        'author' => $book->author,
+                        'display' => $book->title . ' by ' . $book->author
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $suggestions
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'data' => []
+            ], 500);
+        }
     }
 
 
@@ -399,11 +406,6 @@ class BookController extends Controller
                 'data' => $books
             ]);
         } catch (\Exception $e) {
-            Log::error('Error retrieving newly added books', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while retrieving newly added books',
@@ -489,6 +491,32 @@ class BookController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Check if book has active borrow events that prevent deletion
+            $activeBorrowEvents = BorrowEvent::where('book_id', $book->id)
+                ->whereHas('borrowStatus', function ($query) {
+                    $query->whereIn('borrow_status_id', [2, 4, 7, 8]);
+                })
+                ->with('borrowStatus.borrowStatus') // Load the status relationship for better error messaging
+                ->get();
+
+            if ($activeBorrowEvents->isNotEmpty()) {
+                DB::rollBack();
+
+                // Get status names for better error message (optional)
+                $statusNames = $activeBorrowEvents->map(function ($event) {
+                    return $event->borrowStatus->borrowStatus->status ?? 'Unknown';
+                })->unique()->implode(', ');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot delete this book because it is currently being borrowed or has active borrow requests.',
+                    'details' => "Book has active borrow events with status: {$statusNames}",
+                    'errors' => [
+                        'book' => ['This book cannot be deleted while it has active borrow events.']
+                    ]
+                ], 422);
+            }
 
             // 1. Delete all borrow events and their related data
             $borrowEvents = BorrowEvent::where('book_id', $book->id)->get();
@@ -621,6 +649,29 @@ class BookController extends Controller
                 'success' => false,
                 'message' => 'Unauthorized. You do not own this book'
             ], 403);
+        }
+
+        $activeBorrowEvents = BorrowEvent::where('book_id', $book->id)
+            ->whereHas('borrowStatus', function ($query) {
+                $query->whereIn('borrow_status_id', [2, 4, 7, 8]);
+            })
+            ->with('borrowStatus.borrowStatus')
+            ->get();
+
+        if ($activeBorrowEvents->isNotEmpty()) {
+            // Get status names for better error message
+            $statusNames = $activeBorrowEvents->map(function ($event) {
+                return $event->borrowStatus->borrowStatus->status ?? 'Unknown';
+            })->unique()->implode(', ');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot edit this book because it is currently being borrowed or has active borrow requests.',
+                'details' => "Book has active borrow events with status: {$statusNames}",
+                'errors' => [
+                    'book' => ['This book cannot be edited while it has active borrow events.']
+                ]
+            ], 422);
         }
 
         try {

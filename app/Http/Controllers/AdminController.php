@@ -214,25 +214,13 @@ class AdminController extends Controller
                 'data' => $user
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation error when updating user status', [
-                'user_id' => $id,
-                'errors' => $e->errors(),
-            ]);
             throw $e;
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            Log::error('User not found when updating status', [
-                'user_id' => $id
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'User not found'
             ], 404);
         } catch (\Exception $e) {
-            Log::error('Error updating user status', [
-                'user_id' => $id,
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while updating user status'
@@ -351,25 +339,13 @@ class AdminController extends Controller
                 'data' => $book
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation error when updating book status', [
-                'book_id' => $id,
-                'errors' => $e->errors(),
-            ]);
             throw $e;
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            Log::error('Book not found when updating status', [
-                'book_id' => $id
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Book not found'
             ], 404);
         } catch (\Exception $e) {
-            Log::error('Error updating book status', [
-                'book_id' => $id,
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while updating book status'
@@ -514,8 +490,6 @@ class AdminController extends Controller
                 ]);
             }
 
-            // Log the final query for debugging
-
             // Pagination
             $perPage = $request->input('per_page', 10);
             $paginator = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -536,14 +510,6 @@ class AdminController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-            Log::error('Error in indexBorrowActivities', [
-                'message' => $e->getMessage(),
-                'code' => $e->getCode(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve borrow activities',
@@ -650,8 +616,6 @@ class AdminController extends Controller
                 ]);
             }
         } catch (\Exception $e) {
-            Log::error('Error fetching borrow activity reports: ' . $e->getMessage());
-
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve borrow event reports',
@@ -833,35 +797,16 @@ class AdminController extends Controller
             $admin = Admin::where('username', $credentials['username'])->first();
 
             if (!$admin || !Hash::check($credentials['password'], $admin->password)) {
-                Log::warning('Failed login attempt', [
-                    'username' => $credentials['username'],
-                    'ip' => $request->ip()
-                ]);
                 return response()->json(['message' => 'Invalid credentials'], 401);
             }
-            Log::info('Admin found: ' . $admin->id);
             // Delete old tokens (optional - for single session)
             $admin->tokens()->delete();
             $token = $admin->createToken('admin-token')->plainTextToken;
-            Log::info('Token created: ' . substr($token, 0, 10) . '...');
-            Log::info('Admin tokens count: ' . $admin->tokens()->count());
-
-            Log::info('Admin logged in successfully', [
-                'admin_id' => $admin->id,
-                'username' => $admin->username,
-                'ip' => $request->ip()
-            ]);
-
             return response()->json([
                 'admin' => $admin,
                 'token' => $token
             ]);
         } catch (\Exception $e) {
-            Log::error('Login error: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-                'ip' => $request->ip()
-            ]);
-
             return response()->json(['message' => 'An error occurred during login'], 500);
         }
     }
@@ -910,12 +855,6 @@ class AdminController extends Controller
             }
             return response()->json($books);
         } catch (\Exception $e) {
-            Log::error('Error fetching user books', [
-                'user_id' => $userId,
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
             return response()->json(['message' => 'An error occurred while fetching user books'], 500);
         }
     }
@@ -923,17 +862,11 @@ class AdminController extends Controller
     public function getUserBorrowEvents($userId)
     {
         try {
-            Log::info('Attempting to fetch borrow events', ['user_id' => $userId]);
-
             $user = User::where('id', $userId)->first();
 
             if (!$user) {
-                Log::warning('User not found when fetching borrow events', ['user_id' => $userId]);
                 return response()->json(['message' => 'User not found'], 404);
             }
-
-            Log::info('Found user, fetching borrow events', ['user_id' => $userId, 'user_name' => $user->name]);
-
             $borrowEventsQuery = $user->borrowedEvents()
                 ->with([
                     'book.pictures',
@@ -949,36 +882,14 @@ class AdminController extends Controller
                 ->latest()  // Order by created_at desc
                 ->take(3);  // Limit to 3 records
 
-            Log::debug('Borrow events query', ['sql' => $borrowEventsQuery->toSql(), 'bindings' => $borrowEventsQuery->getBindings()]);
-
             $borrowEvents = $borrowEventsQuery->get();
 
-            Log::info('Borrow events query executed', [
-                'user_id' => $userId,
-                'events_count' => $borrowEvents->count(),
-                'has_events' => !$borrowEvents->isEmpty()
-            ]);
-
             if ($borrowEvents->isEmpty()) {
-                Log::warning('No borrow events found for user', ['user_id' => $userId]);
                 return response()->json(['message' => 'No borrow events found for this user'], 404);
             } else {
-                Log::info('Borrow events retrieved successfully', [
-                    'user_id' => $userId,
-                    'events_count' => $borrowEvents->count(),
-                    'first_event_id' => $borrowEvents->first()->id ?? 'none'
-                ]);
                 return response()->json($borrowEvents);
             }
         } catch (\Exception $e) {
-            Log::error('Error fetching user borrow events', [
-                'user_id' => $userId,
-                'message' => $e->getMessage(),
-                'code' => $e->getCode(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json(['message' => 'An error occurred while fetching user borrow events'], 500);
         }
     }
@@ -1160,10 +1071,6 @@ class AdminController extends Controller
                 'data' => $admin
             ], 201);
         } catch (\Exception $e) {
-            Log::error('Error creating admin', [
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'An error occurred while creating admin',
