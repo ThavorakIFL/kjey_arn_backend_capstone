@@ -29,7 +29,7 @@ class UserController extends Controller
                 });
             }
 
-            $perPage = $request->get('per_page', 14); // Default 14 users per page
+            $perPage = $request->get('per_page', 18); // Default 14 users per page
             $page = $request->get('page', 1);
 
             // Validate pagination parameters
