@@ -249,8 +249,36 @@ class BookController extends Controller
 
     private function performSearch(Request $request)
     {
-        $query = Book::with(['genres', 'pictures', 'availability', 'user'])->where('status', 1);
         $hasFilters = false;
+        $isPersonalShelf = false;
+
+        // Check if this is a personal shelf search (user searching their own books)
+        if ($request->filled('sub')) {
+            $user = User::where('sub', $request->sub)->first();
+            if ($user) {
+                // For personal shelf: Show ALL user's books (including suspended ones)
+                $query = Book::with(['genres', 'pictures', 'availability', 'user'])
+                    ->where('user_id', $user->id);
+                $hasFilters = true;
+                $isPersonalShelf = true;
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'User not found for the provided sub',
+                ];
+            }
+        } else {
+            // For global search (All Books page): Only show active books (status = 1)
+            $query = Book::with(['genres', 'pictures', 'availability', 'user'])
+                ->where('status', 1);
+        }
+
+        // NOTE: We don't filter by availability_id at all!
+        // - status = 1 means the book is active (not suspended)
+        // - availability_id = 1 means available (not borrowed)
+        // - availability_id = 2 means unavailable (being borrowed)
+        // Both available and unavailable books should show in All Books page
+        // Only suspended books (status = 0) should be hidden from All Books page
 
         if ($request->filled('search')) {
             $searchTerm = $request->search;
@@ -283,18 +311,7 @@ class BookController extends Controller
             $hasFilters = true;
         }
 
-        if ($request->filled('sub')) {
-            $user = User::where('sub', $request->sub)->first();
-            if ($user) {
-                $query->where('user_id', $user->id);
-                $hasFilters = true;
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'User not found for the provided sub',
-                ];
-            }
-        }
+        $query->orderBy('created_at', 'desc');
 
         // Pagination logic
         $perPage = $request->get('per_page', 14);
@@ -325,6 +342,93 @@ class BookController extends Controller
             'message' => 'Books retrieved successfully'
         ];
     }
+
+    // private function performSearch(Request $request)
+    // {
+    //     // $query = Book::with(['genres', 'pictures', 'availability', 'user'])->where('status', 1);
+    //     $query = Book::with(['genres', 'pictures', 'availability', 'user'])
+    //         ->where('status', 1)
+    //         // FIX 2: Add availability check (same as newlyAddedBooks)
+    //         ->whereHas('availability', function ($q) {
+    //             $q->where('availability_id', 1);
+    //         });
+    //     $hasFilters = false;
+
+    //     if ($request->filled('search')) {
+    //         $searchTerm = $request->search;
+    //         $query->where(function ($q) use ($searchTerm) {
+    //             $q->where('title', 'like', '%' . $searchTerm . '%')
+    //                 ->orWhere('author', 'like', '%' . $searchTerm . '%')
+    //                 ->orWhere('description', 'like', '%' . $searchTerm . '%');
+    //         });
+    //         $hasFilters = true;
+    //     }
+
+    //     if ($request->filled('title')) {
+    //         $query->where('title', 'like', '%' . $request->title . '%');
+    //         $hasFilters = true;
+    //     }
+
+    //     if ($request->filled('author')) {
+    //         $query->where('author', 'like', '%' . $request->author . '%');
+    //         $hasFilters = true;
+    //     }
+
+    //     if ($request->filled('genre_ids')) {
+    //         $genreIds = is_array($request->genre_ids)
+    //             ? $request->genre_ids
+    //             : explode(',', $request->genre_ids);
+
+    //         $query->whereHas('genres', function ($q) use ($genreIds) {
+    //             $q->whereIn('genres.id', $genreIds);
+    //         });
+    //         $hasFilters = true;
+    //     }
+
+    //     if ($request->filled('sub')) {
+    //         $user = User::where('sub', $request->sub)->first();
+    //         if ($user) {
+    //             $query->where('user_id', $user->id);
+    //             $hasFilters = true;
+    //         } else {
+    //             return [
+    //                 'success' => false,
+    //                 'message' => 'User not found for the provided sub',
+    //             ];
+    //         }
+    //     }
+
+    //     $query->orderBy('created_at', 'desc');
+
+    //     // Pagination logic
+    //     $perPage = $request->get('per_page', 14);
+    //     $page = $request->get('page', 1);
+
+    //     // Validate pagination parameters
+    //     $perPage = max(1, min(100, (int)$perPage));
+    //     $page = max(1, (int)$page);
+
+    //     // Get paginated results
+    //     $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
+    //     return [
+    //         'success' => true,
+    //         'data' => [
+    //             'books' => $paginatedBooks->items(),
+    //             'pagination' => [
+    //                 'current_page' => $paginatedBooks->currentPage(),
+    //                 'last_page' => $paginatedBooks->lastPage(),
+    //                 'per_page' => $paginatedBooks->perPage(),
+    //                 'total' => $paginatedBooks->total(),
+    //                 'from' => $paginatedBooks->firstItem(),
+    //                 'to' => $paginatedBooks->lastItem(),
+    //                 'has_more_pages' => $paginatedBooks->hasMorePages(),
+    //                 'prev_page_url' => $paginatedBooks->previousPageUrl(),
+    //                 'next_page_url' => $paginatedBooks->nextPageUrl(),
+    //             ]
+    //         ],
+    //         'message' => 'Books retrieved successfully'
+    //     ];
+    // }
 
     public function getBookSuggestions(Request $request)
     {

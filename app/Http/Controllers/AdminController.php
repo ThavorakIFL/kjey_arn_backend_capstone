@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class AdminController extends Controller
 {
@@ -314,6 +315,47 @@ class AdminController extends Controller
         );
     }
 
+    // public function updateBookStatus(Request $request, $id)
+    // {
+    //     try {
+    //         $request->validate([
+    //             'status' => 'required|integer|in:0,1'
+    //         ]);
+
+    //         $book = Book::findOrFail($id);
+    //         $book->status = $request->status;
+
+    //         // Update availability based on status
+    //         if ($request->status == 1) {
+    //             $book->availability()->update(['availability_id' => 1]);
+    //         } else {
+    //             $book->availability()->update(['availability_id' => 2]);
+    //         }
+
+    //         $book->save();
+
+    //         $this->clearSearchCache();
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'message' => 'Book status updated successfully',
+    //             'data' => $book
+    //         ]);
+    //     } catch (\Illuminate\Validation\ValidationException $e) {
+    //         throw $e;
+    //     } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'Book not found'
+    //         ], 404);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => 'An error occurred while updating book status'
+    //         ], 500);
+    //     }
+    // }
+
     public function updateBookStatus(Request $request, $id)
     {
         try {
@@ -322,6 +364,33 @@ class AdminController extends Controller
             ]);
 
             $book = Book::findOrFail($id);
+
+            // Check if trying to suspend a book (status = 0) that has active borrow events
+            if ($request->status == 0) {
+                $activeBorrowEvents = BorrowEvent::where('book_id', $book->id)
+                    ->whereHas('borrowStatus', function ($query) {
+                        $query->whereIn('borrow_status_id', [1, 2, 4, 7, 8]);
+                    })
+                    ->with('borrowStatus.borrowStatus') // Load the status relationship for better error messaging
+                    ->get();
+
+                if ($activeBorrowEvents->isNotEmpty()) {
+                    // Get status names for better error message
+                    $statusNames = $activeBorrowEvents->map(function ($event) {
+                        return $event->borrowStatus->borrowStatus->status ?? 'Unknown';
+                    })->unique()->implode(', ');
+
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cannot suspend this book because it is currently being borrowed or has active borrow requests.',
+                        'details' => "Book has active borrow events with status: {$statusNames}",
+                        'errors' => [
+                            'book' => ['This book cannot be suspended while it has active borrow events.']
+                        ]
+                    ], 422);
+                }
+            }
+
             $book->status = $request->status;
 
             // Update availability based on status
@@ -332,6 +401,8 @@ class AdminController extends Controller
             }
 
             $book->save();
+
+            $this->clearSearchCache();
 
             return response()->json([
                 'success' => true,
@@ -350,6 +421,30 @@ class AdminController extends Controller
                 'success' => false,
                 'message' => 'An error occurred while updating book status'
             ], 500);
+        }
+    }
+
+    private function clearSearchCache()
+    {
+        try {
+            // Method 1: Clear all search cache keys (if using Redis)
+            if (Cache::getStore() instanceof \Illuminate\Cache\RedisStore) {
+                $keys = Cache::getRedis()->keys('*books_search_*');
+                if ($keys) {
+                    foreach ($keys as $key) {
+                        // Remove the Redis prefix if it exists
+                        $cleanKey = str_replace(config('cache.prefix') . ':', '', $key);
+                        Cache::forget($cleanKey);
+                    }
+                }
+            } else {
+                // Method 2: For other cache drivers, you'll need to clear all cache
+                // This is less efficient but works for all cache drivers
+                Cache::flush();
+            }
+        } catch (\Exception $e) {
+            // If cache clearing fails, log it but don't break the flow
+            Log::warning('Failed to clear search cache: ' . $e->getMessage());
         }
     }
 
