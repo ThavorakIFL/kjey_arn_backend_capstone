@@ -233,7 +233,7 @@ class BookController extends Controller
             $cacheKey = 'books_search_' . md5(json_encode($request->all()));
 
             // Try to get from cache first (cache for 5 minutes)
-            $cachedResult = Cache::remember($cacheKey, 300, function () use ($request) {
+            $cachedResult = Cache::remember($cacheKey, 5, function () use ($request) {
                 return $this->performSearch($request);
             });
 
@@ -342,93 +342,6 @@ class BookController extends Controller
             'message' => 'Books retrieved successfully'
         ];
     }
-
-    // private function performSearch(Request $request)
-    // {
-    //     // $query = Book::with(['genres', 'pictures', 'availability', 'user'])->where('status', 1);
-    //     $query = Book::with(['genres', 'pictures', 'availability', 'user'])
-    //         ->where('status', 1)
-    //         // FIX 2: Add availability check (same as newlyAddedBooks)
-    //         ->whereHas('availability', function ($q) {
-    //             $q->where('availability_id', 1);
-    //         });
-    //     $hasFilters = false;
-
-    //     if ($request->filled('search')) {
-    //         $searchTerm = $request->search;
-    //         $query->where(function ($q) use ($searchTerm) {
-    //             $q->where('title', 'like', '%' . $searchTerm . '%')
-    //                 ->orWhere('author', 'like', '%' . $searchTerm . '%')
-    //                 ->orWhere('description', 'like', '%' . $searchTerm . '%');
-    //         });
-    //         $hasFilters = true;
-    //     }
-
-    //     if ($request->filled('title')) {
-    //         $query->where('title', 'like', '%' . $request->title . '%');
-    //         $hasFilters = true;
-    //     }
-
-    //     if ($request->filled('author')) {
-    //         $query->where('author', 'like', '%' . $request->author . '%');
-    //         $hasFilters = true;
-    //     }
-
-    //     if ($request->filled('genre_ids')) {
-    //         $genreIds = is_array($request->genre_ids)
-    //             ? $request->genre_ids
-    //             : explode(',', $request->genre_ids);
-
-    //         $query->whereHas('genres', function ($q) use ($genreIds) {
-    //             $q->whereIn('genres.id', $genreIds);
-    //         });
-    //         $hasFilters = true;
-    //     }
-
-    //     if ($request->filled('sub')) {
-    //         $user = User::where('sub', $request->sub)->first();
-    //         if ($user) {
-    //             $query->where('user_id', $user->id);
-    //             $hasFilters = true;
-    //         } else {
-    //             return [
-    //                 'success' => false,
-    //                 'message' => 'User not found for the provided sub',
-    //             ];
-    //         }
-    //     }
-
-    //     $query->orderBy('created_at', 'desc');
-
-    //     // Pagination logic
-    //     $perPage = $request->get('per_page', 14);
-    //     $page = $request->get('page', 1);
-
-    //     // Validate pagination parameters
-    //     $perPage = max(1, min(100, (int)$perPage));
-    //     $page = max(1, (int)$page);
-
-    //     // Get paginated results
-    //     $paginatedBooks = $query->paginate($perPage, ['*'], 'page', $page);
-    //     return [
-    //         'success' => true,
-    //         'data' => [
-    //             'books' => $paginatedBooks->items(),
-    //             'pagination' => [
-    //                 'current_page' => $paginatedBooks->currentPage(),
-    //                 'last_page' => $paginatedBooks->lastPage(),
-    //                 'per_page' => $paginatedBooks->perPage(),
-    //                 'total' => $paginatedBooks->total(),
-    //                 'from' => $paginatedBooks->firstItem(),
-    //                 'to' => $paginatedBooks->lastItem(),
-    //                 'has_more_pages' => $paginatedBooks->hasMorePages(),
-    //                 'prev_page_url' => $paginatedBooks->previousPageUrl(),
-    //                 'next_page_url' => $paginatedBooks->nextPageUrl(),
-    //             ]
-    //         ],
-    //         'message' => 'Books retrieved successfully'
-    //     ];
-    // }
 
     public function getBookSuggestions(Request $request)
     {
@@ -692,6 +605,8 @@ class BookController extends Controller
 
             DB::commit();
 
+            $this->clearSearchCache();
+
             return response()->json([
                 'success' => true,
                 'message' => 'Book and all related data deleted successfully'
@@ -920,7 +835,7 @@ class BookController extends Controller
             $book->save();
 
             DB::commit();
-
+            $this->clearSearchCache();
             // Reload book with relationships to return updated data
             $book->load(['pictures', 'genres', 'availability']);
 
@@ -940,6 +855,29 @@ class BookController extends Controller
                 'message' => 'An error occurred while updating the book',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+    private function clearSearchCache()
+    {
+        try {
+            // Method 1: Clear all search cache keys (if using Redis)
+            if (Cache::getStore() instanceof \Illuminate\Cache\RedisStore) {
+                $keys = Cache::getRedis()->keys('*books_search_*');
+                if ($keys) {
+                    foreach ($keys as $key) {
+                        // Remove the Redis prefix if it exists
+                        $cleanKey = str_replace(config('cache.prefix') . ':', '', $key);
+                        Cache::forget($cleanKey);
+                    }
+                }
+            } else {
+                // Method 2: For other cache drivers, you'll need to clear all cache
+                // This is less efficient but works for all cache drivers
+                Cache::flush();
+            }
+        } catch (\Exception $e) {
+            // If cache clearing fails, log it but don't break the flow
+            Log::warning('Failed to clear search cache: ' . $e->getMessage());
         }
     }
 }
